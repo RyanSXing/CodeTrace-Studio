@@ -1,7 +1,7 @@
-# SBML Studio
+# Code Trace Studio
 ### Interactive Web IDE for Exploring an Interpreter
 
-SBML Studio is an **interactive web IDE for a small block‑structured language (SBML)**.  
+Code Trace Studio is an **interactive web IDE for a small block‑structured language (SBML)**.  
 Instead of just running programs, it lets you **see exactly how your interpreter works internally**.
 
 You can:
