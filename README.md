@@ -21,7 +21,7 @@ This project turns a traditional interpreter into a **visual learning and debugg
 
 ## IDE Overview
 
-![IDE Overview](images/ide_overview.png)
+![IDE Overview](ide_overview.png)
 
 The SBML Web IDE provides a coding environment similar to a lightweight programming IDE.  
 Users can write or load SBML programs and run them directly in the browser.
@@ -68,7 +68,7 @@ Output:
 
 ## Node Graph Representation
 
-![AST Graph](images/playback.png)
+![AST Graph](playback.png)
 
 The interpreter builds an **Abstract Syntax Tree (AST)** for every program.
 
@@ -109,7 +109,7 @@ This makes it possible to **observe how the parser converts source code into an 
 
 ## Step‑Through Program Execution
 
-![Evaluation Trace](images/eval_trace.png)
+![Evaluation Trace](eval_trace.png)
 
 The evaluation trace shows **how the interpreter evaluates the AST step by step**.
 
