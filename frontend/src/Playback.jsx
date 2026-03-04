@@ -24,13 +24,14 @@ function HighlightedCode({ source, token }) {
 
 // ── Playback component ────────────────────────────────────
 export default function Playback({ code, isDark }) {
-  const [tokens, setTokens]       = useState([])
-  const [astText, setAstText]     = useState('')
-  const [cursor, setCursor]       = useState(-1)
-  const [playing, setPlaying]     = useState(false)
-  const [speed, setSpeed]         = useState(1500) // slider value: 100=slowest(2000ms) → 2000=fastest(100ms)
-  const [loading, setLoading]     = useState(false)
-  const [fetchError, setFetchError] = useState(null)
+  const [tokens, setTokens]                   = useState([])
+  const [astText, setAstText]                 = useState('')
+  const [perTokenAstLines, setPerTokenAstLines] = useState([])
+  const [cursor, setCursor]                   = useState(-1)
+  const [playing, setPlaying]                 = useState(false)
+  const [speed, setSpeed]                     = useState(1500) // slider value: 100=slowest(2000ms) → 2000=fastest(100ms)
+  const [loading, setLoading]                 = useState(false)
+  const [fetchError, setFetchError]           = useState(null)
   const intervalRef = useRef(null)
 
   // ── Fetch tokens + AST on Start ────────────────────────
@@ -41,33 +42,24 @@ export default function Playback({ code, isDark }) {
     setCursor(-1)
     setTokens([])
     setAstText('')
+    setPerTokenAstLines([])
 
     try {
-      const [tokRes, astRes] = await Promise.all([
-        fetch('/tokens', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code }),
-        }),
-        fetch('/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, mode: 'P' }),
-        }),
-      ])
+      const res = await fetch('/playback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await res.json()
 
-      const [tokData, astData] = await Promise.all([tokRes.json(), astRes.json()])
-
-      if (tokData.error && tokData.tokens.length === 0) {
-        setFetchError(tokData.error || 'Lexer error')
+      if (data.error && (!data.tokens || data.tokens.length === 0)) {
+        setFetchError(data.error || 'Error')
         return
       }
 
-      const ast = astData.output || ''
-      const isParseErr = ast.startsWith('SYNTAX') || ast.startsWith('SEMANTIC')
-
-      setTokens(tokData.tokens)
-      setAstText(isParseErr ? '' : ast)
+      setTokens(data.tokens || [])
+      setAstText(data.astText || '')
+      setPerTokenAstLines(data.perTokenAstLines || [])
       setCursor(0)
     } catch (err) {
       setFetchError(`Network error: ${err.message}`)
@@ -102,10 +94,15 @@ export default function Playback({ code, isDark }) {
 
   const visibleAstText = useMemo(() => {
     if (!astText || tokens.length === 0 || cursor < 0) return ''
+    // Use per-token line counts if available, otherwise fall back to linear proportion
+    if (perTokenAstLines.length > 0 && cursor < perTokenAstLines.length) {
+      const lineCount = perTokenAstLines[cursor]
+      return astLines.slice(0, lineCount).join('\n')
+    }
     const fraction = (cursor + 1) / tokens.length
     const lineCount = Math.ceil(astLines.length * fraction)
     return astLines.slice(0, lineCount).join('\n')
-  }, [astLines, cursor, tokens.length, astText])
+  }, [astLines, cursor, tokens.length, astText, perTokenAstLines])
 
   const currentToken = cursor >= 0 && cursor < tokens.length ? tokens[cursor] : null
   const notStarted   = cursor < 0

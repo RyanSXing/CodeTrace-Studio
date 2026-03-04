@@ -60,6 +60,8 @@ def tabs(n):
 class Node:
   def __init__(self):
     self.parent = None
+    self._lexpos = 0        # char position of last token in source (set by parser)
+    self._start_lexpos = 0  # char position of first token in source (set by parser)
   def parentCount(self):
         count = 0
         current = self.parent

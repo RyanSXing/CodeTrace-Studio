@@ -2,7 +2,7 @@
 
 tokens = (
   'INT','REAL','STRING','BOOL', 'NAME',
-  'LPAREN','RPAREN','LBRACK', 'RBRACK', 'LBRACE', 'RBRACE', 
+  'LPAREN','RPAREN','LBRACK', 'RBRACK', 'LBRACE', 'RBRACE',
   'COMMA', 'HASH', 'SEMI', 'ASSIGN',
   'EXP', 'TIMES', 'DIV','INTDIV', 'MOD', 'PLUS', 'MINUS',
   'IN', 'CONS',
@@ -69,7 +69,7 @@ def t_NAME(t):
 
 def t_STRING(t):
     r'(?:"[^"\n]*"|\'[^\'\n]*\')'
-    t.value = t.value[1:-1]  
+    t.value = t.value[1:-1]
     return t
 
 
@@ -104,7 +104,7 @@ def t_error(t):
   raise SyntaxError("SYNTAX ERROR")
   #t.lexer.skip(1)
 
-import ply.lex as lex 
+import ply.lex as lex
 lexer = lex.lex()
 
 precedence = (
@@ -125,13 +125,11 @@ import sbml_ast as ast
 
 start = 'program'
 
-# def p_program(t):
-#   'program : block'
-#   t[0] = t[1]
-
 def p_program_with_funcs(t):
   'program : funcdef_list block'
   t[0] = ast.Program(t[1], t[2])
+  t[0]._lexpos = t[2]._lexpos
+  t[0]._start_lexpos = t[1][0]._start_lexpos if t[1] else t[2]._start_lexpos
 
 def p_program_block_only(t):
   'program : block'
@@ -140,6 +138,8 @@ def p_program_block_only(t):
 def p_block(t):
   'block : LBRACE stmt_list RBRACE'
   t[0] = ast.Block(t[2])
+  t[0]._lexpos = t.lexpos(3)       # RBRACE
+  t[0]._start_lexpos = t.lexpos(1) # LBRACE
 
 def p_funcdef_list_multi(t):
   'funcdef_list : funcdef_list funcdef'
@@ -168,8 +168,8 @@ def p_param_list_opt(t):
 def p_funcdef(t):
   'funcdef : FUN NAME LPAREN param_list_opt RPAREN ASSIGN block expr SEMI'
   t[0] = ast.FunctionDef(t[2], t[4], t[7], t[8])
-
-
+  t[0]._lexpos = t.lexpos(9)        # SEMI
+  t[0]._start_lexpos = t.lexpos(1)  # FUN
 
 def p_stmt_list_multi(t):
   'stmt_list : stmt_list statement'
@@ -186,22 +186,32 @@ def p_stmt_list_empty(t):
 def p_statement_assign(t):
   'statement : lvalue ASSIGN expr SEMI'
   t[0] = ast.Assign(t[1], t[3])
+  t[0]._lexpos = t.lexpos(4)          # SEMI
+  t[0]._start_lexpos = t[1]._lexpos   # start of lvalue
 
 def p_statement_print(t):
   'statement : PRINT LPAREN expr RPAREN SEMI'
   t[0] = ast.Print(t[3])
+  t[0]._lexpos = t.lexpos(5)        # SEMI
+  t[0]._start_lexpos = t.lexpos(1)  # PRINT
 
 def p_statement_if(t):
   'statement : IF LPAREN expr RPAREN block'
   t[0] = ast.If(t[3], t[5])
+  t[0]._lexpos = t[5]._lexpos       # end of then_block (RBRACE)
+  t[0]._start_lexpos = t.lexpos(1)  # IF
 
 def p_statement_if_else(t):
   'statement : IF LPAREN expr RPAREN block ELSE block'
   t[0] = ast.If(t[3], t[5], t[7])
-  
+  t[0]._lexpos = t[7]._lexpos       # end of else_block (RBRACE)
+  t[0]._start_lexpos = t.lexpos(1)  # IF
+
 def p_statement_while(t):
   'statement : WHILE LPAREN expr RPAREN block'
   t[0] = ast.While(t[3], t[5])
+  t[0]._lexpos = t[5]._lexpos       # end of block (RBRACE)
+  t[0]._start_lexpos = t.lexpos(1)  # WHILE
 
 def p_statement_block(t):
     'statement : block'
@@ -210,18 +220,19 @@ def p_statement_block(t):
 def p_lvalue_name(t):
     'lvalue : NAME'
     t[0] = ast.Var(t[1])
+    t[0]._lexpos = t.lexpos(1)  # NAME
 
 def p_lvalue_index(t):
     'lvalue : expr LBRACK expr RBRACK'
     t[0] = ast.Index(t[1], t[3])
-
-# def p_expr_name(p):
-#     'expr : NAME'
-#     p[0] = ast.Var(p[1])
+    t[0]._lexpos = t.lexpos(4)          # RBRACK
+    t[0]._start_lexpos = t[1]._lexpos   # start of sequence expr
 
 def p_expr_fun_call(t):
     'expr : NAME LPAREN arg_list_opt RPAREN'
     t[0] = ast.FunctionCall(t[1], t[3])
+    t[0]._lexpos = t.lexpos(4)        # RPAREN
+    t[0]._start_lexpos = t.lexpos(1)  # NAME
 
 def p_arg_list_single(t):
     'arg_list : expr'
@@ -242,42 +253,58 @@ def p_arg_list_opt(t):
 def p_expr_name(t):
     'expr : NAME'
     t[0] = ast.Var(t[1])
+    t[0]._lexpos = t.lexpos(1)  # NAME
 
 def p_expr_tuple_index_expr(p):
     'expr : HASH INT LPAREN expr RPAREN'
     p[0] = ast.TupleIndex(p[4], ast.Int(p[2]))
+    p[0]._lexpos = p.lexpos(5)         # RPAREN
+    p[0]._start_lexpos = p.lexpos(1)   # HASH
+    p[0].index._lexpos = p.lexpos(2)   # INT
 
 def p_expr_tuple_index_tuple_literal(p):
     'expr : HASH INT LPAREN expr COMMA tuple_list RPAREN'
     p[0] = ast.TupleIndex(ast.Tuple([p[4]] + p[6]), ast.Int(p[2]))
+    p[0]._lexpos = p.lexpos(7)         # RPAREN
+    p[0]._start_lexpos = p.lexpos(1)   # HASH
+    p[0].index._lexpos = p.lexpos(2)   # INT
 
 def p_expr_int(t):
   'expr : INT'
   t[0] = ast.Int(t[1])
+  t[0]._lexpos = t.lexpos(1)  # INT
 
 def p_expr_real(t):
   'expr : REAL'
   t[0] = ast.Real(t[1])
+  t[0]._lexpos = t.lexpos(1)  # REAL
 
 def p_expr_str(t):
   'expr : STRING'
   t[0] = ast.String(t[1])
+  t[0]._lexpos = t.lexpos(1)  # STRING
 
 def p_expr_bool(t):
   'expr : BOOL'
   t[0] = ast.Bool(t[1])
+  t[0]._lexpos = t.lexpos(1)  # BOOL
 
 def p_expr_paren(t):
   'expr : LPAREN expr RPAREN'
   t[0] = t[2]
+  # lexpos already set on t[2]; keep it (inner expr ends at its last token)
 
 def p_expr_singleton_tuple(t):
   'expr : LPAREN expr COMMA RPAREN'
   t[0] = ast.Tuple([t[2]])
+  t[0]._lexpos = t.lexpos(4)        # RPAREN
+  t[0]._start_lexpos = t.lexpos(1)  # LPAREN
 
 def p_expr_tuple(t):
   'expr : LPAREN expr COMMA tuple_list RPAREN'
   t[0] = ast.Tuple([t[2]] + t[4])
+  t[0]._lexpos = t.lexpos(5)        # RPAREN
+  t[0]._start_lexpos = t.lexpos(1)  # LPAREN
 
 def p_tuple_list(t):
   'tuple_list : expr COMMA tuple_list'
@@ -290,17 +317,21 @@ def p_tuple_list_end(t):
 def p_expr_empty_list(t):
   'expr : LBRACK RBRACK'
   t[0] = ast.List([])
+  t[0]._lexpos = t.lexpos(2)        # RBRACK
+  t[0]._start_lexpos = t.lexpos(1)  # LBRACK
 
 def p_expr_list(t):
   'expr : LBRACK list_elements RBRACK'
   t[0] = ast.List(t[2])
+  t[0]._lexpos = t.lexpos(3)        # RBRACK
+  t[0]._start_lexpos = t.lexpos(1)  # LBRACK
 
 def p_list_elements(t):
   'list_elements : expr COMMA list_elements'
   t[0] = [t[1]] + t[3]
 
 def p_list_elements_end(t):
-  'list_elements : expr' 
+  'list_elements : expr'
   t[0] = [t[1]]
 
 def p_expr_binop(t):
@@ -322,31 +353,26 @@ def p_expr_binop(t):
           | expr CONS expr
           | expr IN expr'''
   t[0] = ast.BinOp(t[2], t[1], t[3])
+  t[0]._lexpos = t[3]._lexpos          # end of right operand
+  t[0]._start_lexpos = t[1]._lexpos    # start of left operand
 
 def p_expr_index(t):
   'expr : expr LBRACK expr RBRACK'
   t[0] = ast.Index(t[1], t[3])
-
-# def p_expr_tuple_index(t):
-#   'expr : HASH INT LPAREN expr RPAREN'
-#   t[0] = ast.TupleIndex(t[4], ast.Int(t[2]))
-
-# def p_expr_tuple_index_expr(t):
-#     'expr : HASH INT LPAREN expr RPAREN'
-#     t[0] = ast.TupleIndex(t[4], ast.Int(t[2]))
-
-# def p_expr_tuple_index_tuple_literal(t):
-#     'expr : HASH INT LPAREN expr COMMA tuple_list RPAREN'
-#     t[0] = ast.TupleIndex(ast.Tuple([t[4]] + t[6]), ast.Int(t[2]))
-
+  t[0]._lexpos = t.lexpos(4)         # RBRACK
+  t[0]._start_lexpos = t[1]._lexpos  # start of sequence expr
 
 def p_expr_unary_not(t):
   'expr : NOT expr'
   t[0] = ast.UnaryOp('not', t[2])
+  t[0]._lexpos = t[2]._lexpos        # end of operand
+  t[0]._start_lexpos = t.lexpos(1)   # NOT
 
 def p_expr_unary_minus(t):
   'expr : MINUS expr %prec NOT'
   t[0] = ast.UnaryOp('-', t[2])
+  t[0]._lexpos = t[2]._lexpos        # end of operand
+  t[0]._start_lexpos = t.lexpos(1)   # MINUS
 
 def p_error(t):
   raise SyntaxError("SYNTAX ERROR")

@@ -292,6 +292,59 @@ function registerSbmlLanguage(monaco) {
   })
 }
 
+// ── About modal ──────────────────────────────────────────────
+function AboutModal({ onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+        <h2 className="modal-title">Code Trace Studio</h2>
+        <p className="modal-subtitle">A visual interpreter for learning how programs are processed</p>
+
+        <div className="modal-section">
+          <h3>Why this project?</h3>
+          <p>
+            While studying <em>Fundamentals of Programming Languages</em>, I found it hard to visualize
+            what actually happens when source code is parsed — how tokens get identified, how an abstract
+            syntax tree (AST) gets built, and how that tree gets evaluated step by step. So I built a tool
+            that shows you exactly that, interactively.
+          </p>
+        </div>
+
+        <div className="modal-section">
+          <h3>What is SBML?</h3>
+          <p>
+            SBML is a small, block-structured language designed to capture the core features of a real
+            programming language: variables, arithmetic, booleans, strings, lists, tuples, conditionals,
+            loops, and user-defined functions. It's simple enough to explore easily, but expressive enough
+            to write interesting programs.
+          </p>
+        </div>
+
+        <div className="modal-section">
+          <h3>What can you do here?</h3>
+          <ul className="modal-list">
+            <li><strong>Run</strong> — execute code and see output instantly.</li>
+            <li><strong>AST Text / Tree</strong> — inspect the full parse tree as text or an interactive diagram.</li>
+            <li><strong>Playback</strong> — step through each token one at a time and watch the AST get constructed in sync with the highlighted source.</li>
+            <li><strong>Eval Trace</strong> — follow the interpreter as it evaluates every node, seeing the environment change at each step.</li>
+            <li><strong>Examples</strong> — load pre-built programs to explore common patterns.</li>
+          </ul>
+        </div>
+
+        <div className="modal-section">
+          <h3>How it works</h3>
+          <p>
+            Source code is tokenized by a lexer (PLY), then parsed into an AST using a grammar with
+            operator precedence rules. The AST is evaluated by walking the tree recursively. The
+            backend is a Python/Flask server; the frontend is React with Monaco Editor.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── SVG icons ────────────────────────────────────────────────
 function SunIcon() {
   return (
@@ -381,9 +434,15 @@ export default function App() {
   const [rightTab, setRightTab] = useState('output')
   const [isDark, setIsDark]     = useState(true)
   const [splitPct, setSplitPct] = useState(55)
+  const [showAbout, setShowAbout] = useState(false)
   const bodyRef   = useRef(null)
   const editorRef = useRef(null)
   const monacoRef = useRef(null)
+
+  function handleEditorBeforeMount(monaco) {
+    monacoRef.current = monaco
+    registerSbmlLanguage(monaco)
+  }
 
   function handleEditorMount(editor, monaco) {
     editorRef.current = editor
@@ -471,9 +530,11 @@ export default function App() {
 
   return (
     <div className={`app ${isDark ? 'dark' : 'light'}`}>
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       <header className="app-header">
-        <h1>SBML Web IDE</h1>
+        <h1>Code Trace Studio</h1>
         <div className="controls">
+          <button className="about-btn" onClick={() => setShowAbout(true)}>About</button>
           <ExamplesDropdown onSelect={setCode} />
           <button className="theme-btn" onClick={toggleTheme} title="Toggle theme">
             {isDark ? <SunIcon /> : <MoonIcon />}
@@ -492,6 +553,7 @@ export default function App() {
             theme={isDark ? 'sbml-dark' : 'sbml-light'}
             value={code}
             onChange={val => setCode(val ?? '')}
+            beforeMount={handleEditorBeforeMount}
             onMount={handleEditorMount}
             options={{
               fontSize: 14,

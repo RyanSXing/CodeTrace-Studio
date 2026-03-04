@@ -18,6 +18,10 @@ export default defineConfig({
         target: 'http://localhost:5001',
         changeOrigin: true,
       },
+      '/playback': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      },
     },
   },
 })

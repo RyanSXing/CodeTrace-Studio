@@ -266,6 +266,235 @@ def run_trace(source: str) -> dict:
     return {"steps": steps, "ast": ast_text, "error": None}
 
 
+def _build_playback_data(source: str):
+    """
+    Parse source, extract tokens with positions, and compute per-token AST line visibility.
+
+    Each AST node has a _lexpos attribute (set by the parser rules) equal to the char
+    position of its last token in source. We use this to determine exactly when each
+    AST line should be revealed during playback.
+
+    Returns dict with:
+      - tokens: list of {type, value, start, end}
+      - astText: full AST as string
+      - perTokenAstLines: list of ints (one per token); perTokenAstLines[i] = number of
+        AST lines that should be visible after token i is highlighted
+      - error: None or error string
+    """
+    import io as _io
+    import contextlib as _ctx
+
+    # 1. Lex tokens with positions
+    try:
+        lex = p.lexer.clone()
+        lex.input(source)
+        raw_tokens = []
+        while True:
+            tok = lex.token()
+            if not tok:
+                break
+            if isinstance(tok.value, bool):
+                raw_value = "True" if tok.value else "False"
+            else:
+                raw_value = str(tok.value)
+            raw_tokens.append({"type": tok.type, "value": raw_value, "start": tok.lexpos})
+    except SyntaxError:
+        return {"tokens": [], "astText": "", "perTokenAstLines": [], "error": "SYNTAX ERROR"}
+
+    # Compute end positions (trim trailing whitespace from next token's start)
+    for i, t in enumerate(raw_tokens):
+        end = raw_tokens[i + 1]["start"] if i + 1 < len(raw_tokens) else len(source)
+        while end > t["start"] and source[end - 1] in (' ', '\t', '\n', '\r'):
+            end -= 1
+        t["end"] = end
+
+    if not raw_tokens:
+        return {"tokens": [], "astText": "", "perTokenAstLines": [], "error": None}
+
+    # 2. Parse — each node gets ._lexpos set by the parser rules
+    try:
+        root = p.parser.parse(source, lexer=p.lexer.clone())
+        if root is None:
+            raise SyntaxError("empty parse")
+    except Exception:
+        return {"tokens": raw_tokens, "astText": "", "perTokenAstLines": [0] * len(raw_tokens), "error": "SYNTAX ERROR"}
+
+    # 3. Get full AST text
+    ast_buf = _io.StringIO()
+    with _ctx.redirect_stdout(ast_buf):
+        try:
+            ENV.clear()
+            print(root)
+        except Exception:
+            pass
+    ast_text = ast_buf.getvalue().rstrip('\n')
+
+    if not ast_text:
+        return {"tokens": raw_tokens, "astText": "", "perTokenAstLines": [0] * len(raw_tokens), "error": None}
+
+    total_ast_lines = ast_text.count('\n') + 1
+
+    # 4. Build a lookup: token start position -> token index
+    pos_to_tok = {t["start"]: i for i, t in enumerate(raw_tokens)}
+
+    def tok_idx_for_lexpos(lexpos):
+        """Return the token index whose start position == lexpos, or the nearest preceding one."""
+        if lexpos in pos_to_tok:
+            return pos_to_tok[lexpos]
+        # Find the last token that starts at or before lexpos
+        best = 0
+        for i, t in enumerate(raw_tokens):
+            if t["start"] <= lexpos:
+                best = i
+            else:
+                break
+        return best
+
+    # 5. Walk the AST in the same order __str__ emits lines, assigning each AST line
+    #    the token index at which it should be revealed.
+    #    Container headers use _start_lexpos (first token), closing brackets use _lexpos.
+    #    This ensures reveal order is top-to-bottom monotonically non-decreasing.
+    line_reveal_token = [len(raw_tokens) - 1] * total_ast_lines
+
+    def mark_start(offset, node):
+        """Reveal at the node's first token (_start_lexpos), for container headers."""
+        if offset < total_ast_lines:
+            lp = getattr(node, '_start_lexpos', node._lexpos)
+            line_reveal_token[offset] = tok_idx_for_lexpos(lp)
+
+    def mark_end(offset, node):
+        """Reveal at the node's last token (_lexpos), for closing brackets."""
+        if offset < total_ast_lines:
+            line_reveal_token[offset] = tok_idx_for_lexpos(node._lexpos)
+
+    def mark_leaf(offset, node):
+        """Reveal leaf nodes at their single token position."""
+        if offset < total_ast_lines:
+            line_reveal_token[offset] = tok_idx_for_lexpos(node._lexpos)
+
+    def assign_node_lines(node, offset):
+        if not isinstance(node, ast_module.Node):
+            return offset
+        cls = node.__class__.__name__
+
+        if cls == 'Program':
+            mark_start(offset, node); offset += 1
+            for f in (node.func_defs or []):
+                offset = assign_node_lines(f, offset)
+            offset = assign_node_lines(node.main_block, offset)
+
+        elif cls == 'Block':
+            mark_start(offset, node); offset += 1   # "Block{"
+            for s in node.statements:
+                offset = assign_node_lines(s, offset)
+            mark_end(offset, node); offset += 1     # closing "}"
+
+        elif cls == 'FunctionDef':
+            mark_start(offset, node); offset += 1   # "fun name(...)"
+            offset = assign_node_lines(node.block, offset)
+            offset = assign_node_lines(node.return_expr, offset)
+
+        elif cls == 'FunctionCall':
+            mark_start(offset, node); offset += 1   # "name("
+            for a in (node.args or []):
+                offset = assign_node_lines(a, offset)
+
+        elif cls == 'If':
+            mark_start(offset, node); offset += 1   # "If"
+            offset = assign_node_lines(node.condition, offset)
+            offset = assign_node_lines(node.then_block, offset)
+            if node.else_block:
+                offset = assign_node_lines(node.else_block, offset)
+
+        elif cls == 'While':
+            mark_start(offset, node); offset += 1   # "While"
+            offset = assign_node_lines(node.condition, offset)
+            offset = assign_node_lines(node.block, offset)
+
+        elif cls == 'Assign':
+            mark_start(offset, node); offset += 1   # "Assign"
+            offset = assign_node_lines(node.left, offset)
+            offset = assign_node_lines(node.right, offset)
+
+        elif cls == 'Print':
+            mark_start(offset, node); offset += 1   # "Print"
+            offset = assign_node_lines(node.expr, offset)
+
+        elif cls == 'BinOp':
+            mark_start(offset, node); offset += 1   # "BinOp(op)"
+            offset = assign_node_lines(node.left, offset)
+            offset = assign_node_lines(node.right, offset)
+
+        elif cls == 'UnaryOp':
+            mark_start(offset, node); offset += 1   # "UnaryOp(op)"
+            offset = assign_node_lines(node.operand, offset)
+
+        elif cls == 'Index':
+            mark_start(offset, node); offset += 1   # "Index"
+            offset = assign_node_lines(node.sequence, offset)
+            offset = assign_node_lines(node.index, offset)
+
+        elif cls == 'TupleIndex':
+            mark_start(offset, node); offset += 1   # "TupleIndex"
+            offset = assign_node_lines(node.tuple_sequence, offset)
+            offset = assign_node_lines(node.index, offset)
+
+        elif cls == 'List':
+            elements = node.value if isinstance(node.value, list) else []
+            mark_start(offset, node); offset += 1   # "List[" or "List[]"
+            for e in elements:
+                offset = assign_node_lines(e, offset)
+            if elements:
+                mark_end(offset, node); offset += 1  # closing "]"
+
+        elif cls == 'Tuple':
+            elements = node.value if isinstance(node.value, list) else []
+            mark_start(offset, node); offset += 1   # "Tuple("
+            for e in elements:
+                offset = assign_node_lines(e, offset)
+            mark_end(offset, node); offset += 1     # closing ")"
+
+        else:
+            # Leaf: Int, Real, String, Bool, Var — single line
+            mark_leaf(offset, node); offset += 1
+
+        return offset
+
+    assign_node_lines(root, 0)
+
+    # Apply a cumulative-max pass so line_reveal_token is monotonically non-decreasing.
+    # This guarantees astLines.slice(0, N) always shows a consistent top-to-bottom prefix.
+    for i in range(1, total_ast_lines):
+        if line_reveal_token[i] < line_reveal_token[i - 1]:
+            line_reveal_token[i] = line_reveal_token[i - 1]
+
+    # 6. perTokenAstLines[i] = number of lines revealed after processing token i
+    #    A line is revealed when its reveal_token <= i (i.e. that token has been stepped to)
+    per_token = []
+    for tok_idx in range(len(raw_tokens)):
+        count = sum(1 for rt in line_reveal_token if rt <= tok_idx)
+        per_token.append(count)
+
+    return {
+        "tokens": raw_tokens,
+        "astText": ast_text,
+        "perTokenAstLines": per_token,
+        "error": None,
+    }
+
+
+@app.route("/playback", methods=["POST"])
+def playback_endpoint():
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({"tokens": [], "astText": "", "perTokenAstLines": [], "error": "Request body must be JSON"}), 400
+    code = data.get("code", "")
+    if not isinstance(code, str):
+        return jsonify({"tokens": [], "astText": "", "perTokenAstLines": [], "error": "code must be a string"}), 400
+    result = _build_playback_data(code)
+    return jsonify(result), 200
+
+
 @app.route("/trace", methods=["POST"])
 def trace_endpoint():
     data = request.get_json(force=True, silent=True)
@@ -279,4 +508,4 @@ def trace_endpoint():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    app.run(host="0.0.0.0", port=5002, debug=True)
