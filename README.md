@@ -1,304 +1,261 @@
-# SBML Interpreter
+# SBML Studio
+### Interactive Web IDE for Exploring an Interpreter
 
-Interpreter for a small block-structured language (SBML), written in Python.
-It parses SBML source code into an abstract syntax tree (AST) and evaluates it with support for variables, expressions, conditionals, loops, and user-defined functions.
+SBML Studio is an **interactive web IDE for a small block‑structured language (SBML)**.  
+Instead of just running programs, it lets you **see exactly how your interpreter works internally**.
 
-> Example: computing the greatest common divisor (GCD)
-> **Input:**
->
-> ```sbml
-> fun gcd(a, b) =
-> {
->   t = b;
->   b = a mod b;
->   if (b == 0)
->   {
->     output = t;
->   }
->   else
->   {
->     output = gcd(t, b);
->   }
-> }
-> output;
-> {
->   print(gcd(32, 18));
-> }
-> ```
->
-> **Output:**
->
-> ```text
-> 2
-> ```
+You can:
 
+• Run SBML code directly in the browser  
+• See terminal‑style program output  
+• Inspect the AST as text  
+• Visualize the AST as a node graph  
+• Watch the AST being constructed token‑by‑token  
+• Step through the evaluation of the program tree  
 
-## Features
+This project turns a traditional interpreter into a **visual learning and debugging environment for programming languages**.
 
-* **Lexer & Parser**
+---
 
-  * Tokenizes SBML source code.
-  * Builds an AST for programs, blocks, statements, and expressions.
+# Demo
 
-* **AST Evaluation**
+## IDE Overview
 
-  * Environment stack for variables and scopes.
-  * Function definitions and recursive calls.
-  * `output` variable used to return values from functions.
+![IDE Overview](images/ide_overview.png)
 
-* **Language Constructs**
+The SBML Web IDE provides a coding environment similar to a lightweight programming IDE.  
+Users can write or load SBML programs and run them directly in the browser.
 
-  * Integer variables and assignments.
-  * Arithmetic: `+`, `-`, `*`, `/`, `mod`
-  * Comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`
-  * `if` / `else`
-  * `while` loops
-  * `fun` function definitions
-  * `print(...)` built-in
+Tabs allow switching between different interpreter views:
 
-* **Semantic Error Checking**
+• Program Output  
+• AST Text  
+• AST Tree Visualization  
+• Syntax Reference  
+• Playback (parser visualization)  
+• Evaluation Trace  
 
-  * Duplicate function names.
-  * Invalid programs (parser / semantic errors) reported as `SEMANTIC ERROR` (following the assignment spec).
+---
 
+# Features
 
-## Project Structure
+## Run SBML Programs
 
-```text
-.
-├── sbml_ast.py      # AST node classes and evaluation logic
-├── sbml_parser.py   # Lexer and parser that build the AST
-├── sbml_main.py     # Command-line entry point / driver
-└── CSE307-S20-HWA05.pdf  # Original assignment specification (optional)
-```
+The IDE executes SBML programs and displays output in a terminal‑style console.
 
-
-## Getting Started
-
-### Prerequisites
-
-* Python 3.x
-
-No external dependencies should be required beyond the standard library.
-
-### Running the Interpreter
-
-Depending on how `sbml_main.py` is written, you’ll typically run the interpreter in one of these ways:
-
-1. **Passing a source file as an argument**
-
-   ```bash
-   python3 sbml_main.py program.sbml
-   ```
-
-2. **Reading SBML from standard input**
-
-   ```bash
-   python3 sbml_main.py < program.sbml
-   ```
-
-On semantic or parsing errors, the interpreter prints:
-
-```text
-SEMANTIC ERROR
-```
-
-as required by the assignment.
-
-
-## Example
-
-Create a file `gcd.sbml`:
+Example program computing the GCD:
 
 ```sbml
-fun gcd(a, b) =
-{
+fun gcd(a, b) = {
   t = b;
   b = a mod b;
-  if (b == 0)
-  {
-    output = t;
-  }
-  else
-  {
-    output = gcd(t, b);
-  }
+  if (b == 0) { output = t; }
+  else { output = gcd(t, b); }
 }
 output;
-{
-  print(gcd(32, 18));
-}
+{ print(gcd(32, 18)); }
 ```
 
-Run:
+Output:
 
-```bash
-python3 sbml_main.py gcd.sbml
 ```
-
-Expected output:
-
-```text
 2
 ```
 
+---
 
-## Implementation Details
+# AST Visualization
 
-* **Program Loading**
+## Node Graph Representation
 
-  * `sbml_main.py` reads the entire SBML program, passes it to the parser, and then evaluates the resulting `Program` object.
+![AST Graph](images/playback.png)
 
-* **Function Table**
+The interpreter builds an **Abstract Syntax Tree (AST)** for every program.
 
-  * All function definitions are collected before program execution (e.g., in a global `FUNCTIONS` dictionary).
-  * Duplicate function names raise a semantic error.
+SBML Studio displays this AST as a **visual node graph**, making the program structure easy to understand.
 
-* **Environments / Scopes**
+Each node represents:
 
-  * An environment stack tracks variable bindings.
-  * New blocks and function calls push a new environment; exiting them pops it.
-  * This supports nested scopes and recursion.
+• Program structure  
+• Statements  
+• Expressions  
+• Variables  
+• Operations  
 
-* **Error Handling**
+This allows users to **see the structure of a program rather than just reading code**.
 
-  * Parsing or semantic issues raise custom exceptions (e.g., `SemanticError`).
-  * The main driver catches these and prints `SEMANTIC ERROR` to match the spec.
+---
 
+# Parser Playback
 
-## Possible Extensions
+## Step‑by‑Step Tree Construction
 
-* Add more data types (strings, booleans as first-class values, arrays).
-* Add `return` statements instead of using `output`.
-* Improve error messages (line/column numbers, hints).
-* Add a REPL (interactive prompt) for SBML.
+One of the most powerful features is **parser playback**.
 
+The IDE can show the AST **being constructed step by step as tokens are scanned**.
 
-## Acknowledgements
+Users can:
 
-This interpreter was implemented as part of a programming languages course assignment based on a provided SBML specification. The language design and original problem description come from course materials; the parser, AST, and evaluator implementations are my own.
-# Mini-language Interpreter (SBML)
+• Step forward through parsing  
+• Step backward  
+• Play the parsing animation  
+• Control playback speed  
 
-This repository contains a small block-structured language interpreter (SBML) implemented in Python with an optional web-based frontend for interactive editing, token inspection, AST viewing, and execution tracing.
+This makes it possible to **observe how the parser converts source code into an AST**.
 
-Two primary ways to use this project:
+---
 
-- Command-line interpreter (core Python implementation)
-- Web UI (frontend) that talks to a Flask backend (`server.py`) for parsing, tokenization, execution, and tracing
+# Evaluation Trace
 
-**Status:** working prototype — parser, AST, evaluator, and a Vite-powered frontend are included.
+## Step‑Through Program Execution
 
-**Key features**
+![Evaluation Trace](images/eval_trace.png)
 
-- Full lexer & parser that builds an AST
-- AST-based evaluator with scoped environments and functions
-- Syntax (`SYNTAX ERROR`) and semantic (`SEMANTIC ERROR`) error handling
-- HTTP API for running code, tokenizing, and generating execution traces
-- Vite + React frontend for interactive exploration and playback
+The evaluation trace shows **how the interpreter evaluates the AST step by step**.
 
-**Quick Links**
+You can see:
 
-- File: [`server.py`](server.py#L1) — Flask backend exposing `/run`, `/tokens`, `/trace`
-- File: [`sbml_parser.py`](sbml_parser.py#L1) — lexer & parser
-- File: [`sbml_ast.py`](sbml_ast.py#L1) — AST node classes and evaluation
-- File: [`sbml_main.py`](sbml_main.py#L1) — (optional) CLI driver for offline runs
-- Folder: [`frontend/`](frontend) — web UI (Vite + React)
+• Current node being evaluated  
+• Variable environment values  
+• Function calls and recursion  
+• Assignment updates  
+• Control flow execution  
 
-Repository layout
+This effectively turns the interpreter into a **debugger for language execution**.
 
+---
+
+# Language Features
+
+SBML supports a small but expressive set of constructs:
+
+### Variables
 ```
-.
-├── sbml_ast.py        # AST node classes and evaluation logic
-├── sbml_parser.py     # Lexer and parser that build the AST
-├── sbml_main.py       # CLI entry point (run SBML files from terminal)
-├── server.py          # Flask backend used by the frontend (HTTP API)
-├── requirements.txt   # Python backend dependencies
-├── parsetab.py        # Generated parser table (PLY)
-└── frontend/          # Vite + React web frontend
+x = 10;
+y = x + 5;
 ```
 
-Prerequisites
-
-- Python 3.8+ (3.10+ recommended)
-- Node.js (16+) and `npm` to run the frontend
-
-Installation
-
-1. Install Python dependencies:
-
-```bash
-pip install -r requirements.txt
+### Arithmetic
+```
++  -  *  /  mod
 ```
 
-2. Install frontend dependencies (from the `frontend` folder):
-
-```bash
-cd frontend
-npm install
+### Comparisons
+```
+==  !=  <  <=  >  >=
 ```
 
-Running the project
-
-Backend (Flask API)
-
-```bash
-python server.py
+### Conditionals
+```
+if (x > 5) {
+  print(x);
+} else {
+  print(0);
+}
 ```
 
-The Flask server runs on port `5001` by default and exposes these endpoints:
-
-- `POST /run` — runs SBML source. JSON body: `{ "code": "...", "mode": "E" }` where `mode` is `E` (evaluate) or `P` (print/pretty AST). Returns `{ "output": "...", "error": null }`.
-- `POST /tokens` — tokenizes source and returns token ranges for highlighting.
-- `POST /trace` — returns an execution trace (step-by-step) and AST text used by the frontend.
-
-Web frontend (development)
-
-Run the frontend dev server (from `frontend/`):
-
-```bash
-cd frontend
-npm run dev
+### Loops
+```
+while (x > 0) {
+  x = x - 1;
+}
 ```
 
-The frontend is configured to communicate with the backend at `http://localhost:5001` and expects the dev server to run (Vite defaults to port `5173`).
-
-Command-line usage
-
-You can still run SBML programs directly via the CLI driver:
-
-```bash
-python sbml_main.py path/to/program.sbml
+### Functions
+```
+fun add(a,b) = {
+  output = a + b;
+}
 ```
 
-Or pipe source via stdin:
-
-```bash
-python sbml_main.py < program.sbml
+### Recursion
+```
+fun fact(n) = {
+  if (n == 0) { output = 1; }
+  else { output = n * fact(n-1); }
+}
 ```
 
-Error handling
+---
 
-- Syntax problems result in `SYNTAX ERROR` (printed to stdout or returned by API)
-- Semantic issues (type/semantic checks) produce `SEMANTIC ERROR`
+# Architecture
 
-Development notes
+The interpreter consists of several major components.
 
-- The parser uses PLY; `parsetab.py` is generated for performance. If you modify the grammar, remove `parsetab.py` to force regeneration.
-- `server.py` uses the global `ENV` and `FUNCTIONS` from `sbml_ast.py` — expect global state to be cleared by the server before runs and traces.
+## Lexer
+Tokenizes SBML source code into tokens.
 
-Contributing
+## Parser
+Converts tokens into an **Abstract Syntax Tree (AST)**.
 
-Feel free to open issues or PRs. Suggested enhancements:
+## AST Nodes
+Represent language constructs like:
 
-- Add richer types (strings, booleans as first-class values)
-- Add explicit `return` semantics instead of `output`
-- Improve error messages with line/column info
-- Add unit tests and CI
+• Assignments  
+• Expressions  
+• Blocks  
+• Functions  
+• Control flow  
 
-License
+## Evaluator
+Traverses the AST and executes the program using an **environment stack for scope management**.
 
-This repository does not include a license file. Add one if you intend to share the code publicly.
+## Visualization Layer
+The web IDE renders:
 
-Acknowledgements
+• AST graphs  
+• Parsing playback  
+• Evaluation traces  
 
-This code began as an academic assignment to implement a small block-structured language; the web UI was added to aid visualization and tracing of program execution.
+---
+
+# Why This Project Exists
+
+Most interpreters are **black boxes**.  
+You give them code and get output.
+
+SBML Studio instead exposes the **entire internal pipeline**:
+
+```
+Source Code
+      ↓
+Tokenization
+      ↓
+Parsing
+      ↓
+AST Construction
+      ↓
+AST Evaluation
+      ↓
+Program Output
+```
+
+The goal is to make interpreters:
+
+• easier to understand  
+• easier to debug  
+• easier to teach  
+
+---
+
+# Future Improvements
+
+Possible extensions:
+
+• REPL mode  
+• Breakpoints during evaluation  
+• Better error diagnostics  
+• Support for additional data types  
+• Improved syntax highlighting  
+• Live AST updates while typing  
+
+---
+
+# Author
+
+Built as an enhanced interpreter project exploring:
+
+• programming languages  
+• compiler/interpreter design  
+• program visualization  
+• educational developer tools
