@@ -17,6 +17,39 @@ This project turns a traditional interpreter into a **visual learning and debugg
 
 ---
 
+# How to Run
+
+## Prerequisites
+
+- Python 3.x with `pip`
+- Node.js with `npm`
+
+## 1. Install Python dependencies
+
+```bash
+pip install flask flask-cors ply
+```
+
+## 2. Start the backend
+
+```bash
+python3 server.py
+```
+
+The Flask server will start on `http://localhost:5001`.
+
+## 3. Install and start the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The app will be available at `http://localhost:5173`.
+
+---
+
 # Demo
 
 ## IDE Overview
