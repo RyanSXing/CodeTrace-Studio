@@ -578,3 +578,62 @@ html, body, #root {
   color: var(--fn-color);
   word-break: break-all;
 }
+
+/* ── Examples dropdown ──────────────────────────────────────── */
+.examples-wrap {
+  position: relative;
+}
+
+.examples-btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.examples-btn:hover {
+  background: var(--syntax-row-hover);
+}
+
+.examples-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  min-width: 240px;
+  overflow: hidden;
+}
+
+.examples-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 9px 14px;
+  cursor: pointer;
+  text-align: left;
+  gap: 2px;
+}
+.examples-item:last-child { border-bottom: none; }
+.examples-item:hover { background: var(--syntax-row-hover); }
+
+.examples-item-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.examples-item-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+}

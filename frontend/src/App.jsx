@@ -1,18 +1,142 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Editor from '@monaco-editor/react'
 import AstTree from './AstTree.jsx'
 import Playback from './Playback.jsx'
 import EvalTrace from './EvalTrace.jsx'
 import './App.css'
 
-const EXAMPLE_CODE = `fun gcd(a, b) = {
+// ── Sample programs ───────────────────────────────────────────
+const SAMPLES = [
+  {
+    label: 'GCD (recursion)',
+    desc: 'Recursive greatest common divisor',
+    code:
+`fun gcd(a, b) = {
   t = b;
   b = a mod b;
   if (b == 0) { output = t; }
   else { output = gcd(t, b); }
 }
 output;
-{ print(gcd(32, 18)); }`
+{ print(gcd(32, 18)); }`,
+  },
+  {
+    label: 'Fibonacci',
+    desc: 'Recursive nth Fibonacci number',
+    code:
+`fun fib(n) = {
+  if (n <= 1) { output = n; }
+  else { output = fib(n - 1) + fib(n - 2); }
+}
+output;
+{
+  i = 0;
+  while (i < 10) {
+    print(fib(i));
+    i = i + 1;
+  }
+}`,
+  },
+  {
+    label: 'Factorial',
+    desc: 'Iterative factorial with a while loop',
+    code:
+`{
+  n = 8;
+  result = 1;
+  i = 1;
+  while (i <= n) {
+    result = result * i;
+    i = i + 1;
+  }
+  print(result);
+}`,
+  },
+  {
+    label: 'List operations',
+    desc: 'Building and indexing a list',
+    code:
+`{
+  nums = [10, 20, 30, 40, 50];
+  print(nums[0]);
+  print(nums[2]);
+  nums[1] = 99;
+  print(nums);
+  more = 5 :: nums;
+  print(more);
+  combined = [1, 2] + [3, 4];
+  print(combined);
+  print(3 in nums);
+  print(99 in nums);
+}`,
+  },
+  {
+    label: 'Tuples & projection',
+    desc: 'Creating tuples and projecting elements',
+    code:
+`{
+  point = (3, 4);
+  print(#1(point));
+  print(#2(point));
+  triple = (10, 20, 30);
+  print(#3(triple));
+  singleton = (42,);
+  print(#1(singleton));
+}`,
+  },
+  {
+    label: 'String operations',
+    desc: 'String literals, concatenation and indexing',
+    code:
+`{
+  greeting = "Hello";
+  name = "World";
+  msg = greeting + ", " + name + "!";
+  print(msg);
+  print(msg[0]);
+  print(msg[7]);
+  print("lo" in greeting);
+}`,
+  },
+  {
+    label: 'Boolean logic',
+    desc: 'andalso, orelse, not and comparisons',
+    code:
+`{
+  x = 5;
+  y = 10;
+  print(x < y);
+  print(x == y);
+  print(x <> y);
+  print(True andalso False);
+  print(True orelse False);
+  print(not True);
+  print((x < y) andalso (y < 20));
+}`,
+  },
+  {
+    label: 'Higher-order example',
+    desc: 'Power function and nested calls',
+    code:
+`fun pow(base, exp) = {
+  result = 1;
+  i = 0;
+  while (i < exp) {
+    result = result * base;
+    i = i + 1;
+  }
+  output = result;
+}
+output;
+{
+  print(pow(2, 10));
+  print(pow(3, 5));
+  print(pow(pow(2, 3), 2));
+}`,
+  },
+]
+
+const EXAMPLE_CODE = SAMPLES[0].code
 
 // ── Syntax reference ─────────────────────────────────────────
 const SYNTAX_SECTIONS = [
@@ -193,6 +317,43 @@ function MoonIcon() {
   )
 }
 
+// ── Examples dropdown ────────────────────────────────────────
+function ExamplesDropdown({ onSelect }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  return (
+    <div className="examples-wrap" ref={ref}>
+      <button className="examples-btn" onClick={() => setOpen(o => !o)}>
+        Examples ▾
+      </button>
+      {open && (
+        <div className="examples-menu">
+          {SAMPLES.map((s, i) => (
+            <button
+              key={i}
+              className="examples-item"
+              onClick={() => { onSelect(s.code); setOpen(false) }}
+            >
+              <span className="examples-item-label">{s.label}</span>
+              <span className="examples-item-desc">{s.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Resizable split pane ─────────────────────────────────────
 function ResizeHandle({ onDrag }) {
   const dragging = useRef(false)
@@ -313,6 +474,7 @@ export default function App() {
       <header className="app-header">
         <h1>SBML Web IDE</h1>
         <div className="controls">
+          <ExamplesDropdown onSelect={setCode} />
           <button className="theme-btn" onClick={toggleTheme} title="Toggle theme">
             {isDark ? <SunIcon /> : <MoonIcon />}
           </button>
