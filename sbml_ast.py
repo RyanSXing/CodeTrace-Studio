@@ -381,9 +381,7 @@ class BinOp(Node):
     pc = self.parentCount()
     lines = [
       tabs(pc)+f"BinOp({self.operator})",
-      tabs(pc+1)+"left:",
       str(self.left),
-      tabs(pc+1)+"right:",
       str(self.right),
     ]
     return "\n".join(lines)
@@ -415,7 +413,6 @@ class UnaryOp(Node):
     pc = self.parentCount()
     lines = [
       tabs(pc)+f"UnaryOp({self.operator})",
-      tabs(pc+1)+"operand:",
       str(self.operand)
     ]
     return "\n".join(lines)
@@ -446,9 +443,7 @@ class Index(Node):
     pc = self.parentCount()
     return "\n".join([
       tabs(pc)+"Index",
-      tabs(pc+1)+"sequence:",
       str(self.sequence),
-      tabs(pc+1)+"index:",
       str(self.index)
     ])
   
@@ -473,9 +468,7 @@ class TupleIndex(Node):
     pc = self.parentCount()
     return "\n".join([
       tabs(pc)+"TupleIndex",
-      tabs(pc+1)+"tuple:",
       str(self.tuple_sequence),
-      tabs(pc+1)+"index:",
       str(self.index)
     ])
   
@@ -484,6 +477,8 @@ class Assign(Node):
     super().__init__()
     self.left = left
     self.right = right
+    self.left.parent = self
+    self.right.parent = self
   def evaluate(self):
     value = self.right.evaluate()
     if isinstance(self.left, Var):
@@ -510,9 +505,7 @@ class Assign(Node):
     pc = self.parentCount()
     return "\n".join([
       tabs(pc) + "Assign",
-      tabs(pc+1) + "left:",
       str(self.left),
-      tabs(pc+1) + "right:",
       str(self.right),
     ])
 
@@ -557,13 +550,10 @@ class If(Node):
     pc = self.parentCount()
     lines = [
         tabs(pc) + "If",
-        tabs(pc+1) + "cond:",
         str(self.condition),
-        tabs(pc+1) + "then:",
         str(self.then_block)
     ]
     if self.else_block:
-        lines.append(tabs(pc+1) + "else:")
         lines.append(str(self.else_block))
     return "\n".join(lines)
 
@@ -588,9 +578,7 @@ class While(Node):
     pc = self.parentCount()
     return "\n".join([
         tabs(pc) + "While",
-        tabs(pc+1) + "cond:",
         str(self.condition),
-        tabs(pc+1) + "body:",
         str(self.block)
     ])
   
