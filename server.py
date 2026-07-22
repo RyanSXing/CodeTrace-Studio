@@ -1,7 +1,6 @@
-import sys
 import io
 import contextlib
-import copy
+import threading
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -12,6 +11,15 @@ from sbml_ast import SemanticError, ENV, FUNCTIONS
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
+EXECUTION_LOCK = threading.Lock()
+
+
+def _semantic_error(source: str, exc: SemanticError) -> str:
+    if exc.position is None:
+        return f"Semantic error: {exc}"
+    line = source.count("\n", 0, exc.position) + 1
+    column = exc.position - source.rfind("\n", 0, exc.position)
+    return f"Semantic error at line {line}, column {column}: {exc}"
 
 
 def run_interpreter(source: str, mode: str) -> dict:
@@ -19,35 +27,33 @@ def run_interpreter(source: str, mode: str) -> dict:
 
     with contextlib.redirect_stdout(buf):
         try:
-            root = p.parser.parse(source, lexer=p.lexer.clone())
+            root = p.parser.parse(source, lexer=p.new_lexer())
             if root is None:
                 raise SyntaxError("empty parse result")
-        except Exception:
-            print("SYNTAX ERROR")
-            return {"output": buf.getvalue(), "error": None}
+        except SyntaxError as exc:
+            return {"output": "", "error": f"Syntax error {exc}"}
+        except Exception as exc:
+            return {"output": "", "error": f"Internal interpreter error: {exc}"}
 
-        try:
-            ENV.clear()
-        except Exception:
-            pass
+        ENV.clear()
 
         if mode == "P":
             try:
                 ENV.clear()
                 print(root)
-            except SemanticError:
-                print("SEMANTIC ERROR")
-            except Exception:
-                print("SEMANTIC ERROR")
+            except SemanticError as exc:
+                return {"output": buf.getvalue(), "error": _semantic_error(source, exc)}
+            except Exception as exc:
+                return {"output": buf.getvalue(), "error": f"Internal interpreter error: {exc}"}
 
         elif mode == "E":
             try:
                 ENV.clear()
                 root.evaluate()
-            except SemanticError:
-                print("SEMANTIC ERROR")
-            except Exception:
-                print("SEMANTIC ERROR")
+            except SemanticError as exc:
+                return {"output": buf.getvalue(), "error": _semantic_error(source, exc)}
+            except Exception as exc:
+                return {"output": buf.getvalue(), "error": f"Internal interpreter error: {exc}"}
 
         else:
             return {"output": "", "error": f"Invalid mode: {mode}. Use 'E' or 'P'."}
@@ -71,8 +77,9 @@ def run_endpoint():
     if not isinstance(code, str):
         return jsonify({"output": "", "error": "code must be a string"}), 400
 
-    result = run_interpreter(code, mode)
-    return jsonify(result), 200
+    with EXECUTION_LOCK:
+        result = run_interpreter(code, mode)
+    return jsonify(result), 422 if result["error"] else 200
 
 
 @app.route("/tokens", methods=["POST"])
@@ -84,7 +91,7 @@ def tokens_endpoint():
     if not isinstance(code, str):
         return jsonify({"tokens": [], "error": "code must be a string"}), 400
     try:
-        lex = p.lexer.clone()
+        lex = p.new_lexer()
         lex.input(code)
         raw_tokens = []
         while True:
@@ -96,8 +103,8 @@ def tokens_endpoint():
             else:
                 raw_value = str(tok.value)
             raw_tokens.append({"type": tok.type, "value": raw_value, "start": tok.lexpos})
-    except SyntaxError:
-        return jsonify({"tokens": [], "error": "SYNTAX ERROR"}), 200
+    except SyntaxError as exc:
+        return jsonify({"tokens": [], "error": f"Syntax error {exc}"}), 422
     # Compute end positions (walk back whitespace from next token's start)
     for i, t in enumerate(raw_tokens):
         end = raw_tokens[i + 1]["start"] if i + 1 < len(raw_tokens) else len(code)
@@ -129,11 +136,11 @@ def run_trace(source: str) -> dict:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         try:
-            root = p.parser.parse(source, lexer=p.lexer.clone())
+            root = p.parser.parse(source, lexer=p.new_lexer())
             if root is None:
                 raise SyntaxError("empty parse result")
-        except Exception:
-            return {"steps": [], "ast": "", "error": "SYNTAX ERROR"}
+        except SyntaxError as exc:
+            return {"steps": [], "ast": "", "error": f"Syntax error {exc}"}
 
     # Get the full AST text (needed by the frontend for node matching)
     ast_buf = io.StringIO()
@@ -212,7 +219,7 @@ def run_trace(source: str) -> dict:
 
             try:
                 result = orig_eval(self_node)
-            except SemanticError:
+            except SemanticError as exc:
                 printed_now = stdout_buf.getvalue()[len(printed_before):]
                 steps.append({
                     "step": len(steps),
@@ -224,7 +231,7 @@ def run_trace(source: str) -> dict:
                     "env": _env_snapshot(),
                     "returned": None,
                     "printed": printed_now,
-                    "error": "SEMANTIC ERROR",
+                    "error": str(exc),
                 })
                 raise
 
@@ -286,7 +293,7 @@ def _build_playback_data(source: str):
 
     # 1. Lex tokens with positions
     try:
-        lex = p.lexer.clone()
+        lex = p.new_lexer()
         lex.input(source)
         raw_tokens = []
         while True:
@@ -298,8 +305,8 @@ def _build_playback_data(source: str):
             else:
                 raw_value = str(tok.value)
             raw_tokens.append({"type": tok.type, "value": raw_value, "start": tok.lexpos})
-    except SyntaxError:
-        return {"tokens": [], "astText": "", "perTokenAstLines": [], "error": "SYNTAX ERROR"}
+    except SyntaxError as exc:
+        return {"tokens": [], "astText": "", "perTokenAstLines": [], "error": f"Syntax error {exc}"}
 
     # Compute end positions (trim trailing whitespace from next token's start)
     for i, t in enumerate(raw_tokens):
@@ -313,11 +320,11 @@ def _build_playback_data(source: str):
 
     # 2. Parse — each node gets ._lexpos set by the parser rules
     try:
-        root = p.parser.parse(source, lexer=p.lexer.clone())
+        root = p.parser.parse(source, lexer=p.new_lexer())
         if root is None:
             raise SyntaxError("empty parse")
-    except Exception:
-        return {"tokens": raw_tokens, "astText": "", "perTokenAstLines": [0] * len(raw_tokens), "error": "SYNTAX ERROR"}
+    except SyntaxError as exc:
+        return {"tokens": raw_tokens, "astText": "", "perTokenAstLines": [0] * len(raw_tokens), "error": f"Syntax error {exc}"}
 
     # 3. Get full AST text
     ast_buf = _io.StringIO()
@@ -491,8 +498,9 @@ def playback_endpoint():
     code = data.get("code", "")
     if not isinstance(code, str):
         return jsonify({"tokens": [], "astText": "", "perTokenAstLines": [], "error": "code must be a string"}), 400
-    result = _build_playback_data(code)
-    return jsonify(result), 200
+    with EXECUTION_LOCK:
+        result = _build_playback_data(code)
+    return jsonify(result), 422 if result["error"] else 200
 
 
 @app.route("/trace", methods=["POST"])
@@ -503,9 +511,10 @@ def trace_endpoint():
     code = data.get("code", "")
     if not isinstance(code, str):
         return jsonify({"steps": [], "ast": "", "error": "code must be a string"}), 400
-    result = run_trace(code)
-    return jsonify(result), 200
+    with EXECUTION_LOCK:
+        result = run_trace(code)
+    return jsonify(result), 422 if result["error"] else 200
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5002, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True)

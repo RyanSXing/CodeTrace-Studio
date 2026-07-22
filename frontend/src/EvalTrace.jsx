@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import AstTree from './AstTree.jsx'
 
 // ── ENV display ───────────────────────────────────────────
@@ -25,11 +25,10 @@ function EnvPanel({ env, isDark }) {
 }
 
 // ── Step info card ────────────────────────────────────────
-function StepCard({ step, total, isDark }) {
+function StepCard({ step, total }) {
   if (!step) return null
 
   const isReturn = step.phase === 'return'
-  const isEnter  = step.phase === 'enter' || step.phase === 'eval'
   const isError  = step.phase === 'error'
 
   const arrow = isReturn ? '←' : isError ? '✕' : '→'
@@ -78,7 +77,12 @@ export default function EvalTrace({ code, isDark }) {
   const [speed, setSpeed]       = useState(1500)
   const [loading, setLoading]   = useState(false)
   const [fetchError, setFetchError] = useState(null)
+  const [follow, setFollow] = useState(() => localStorage.getItem('eval-follow-camera') !== 'false')
   const intervalRef = useRef(null)
+
+  useEffect(() => {
+    localStorage.setItem('eval-follow-camera', String(follow))
+  }, [follow])
 
   // ── Fetch trace on Start ───────────────────────────────
   const handleStart = useCallback(async () => {
@@ -137,13 +141,6 @@ export default function EvalTrace({ code, isDark }) {
   // so the user sees the node light up when its value is known.
   const highlightNodeId = currentStep ? currentStep.nodeId : null
 
-  // Partial AST: show lines up to the fraction of steps completed
-  const astLines = useMemo(() => astText ? astText.split('\n') : [], [astText])
-  const visibleAstText = useMemo(() => {
-    if (!astText || steps.length === 0 || cursor < 0) return astText
-    return astText  // Show full AST always — highlight does the visual work
-  }, [astText, steps.length, cursor])
-
   return (
     <div className="playback-container">
 
@@ -183,6 +180,16 @@ export default function EvalTrace({ code, isDark }) {
           <span>Fast</span>
         </label>
 
+        <label className="follow-toggle">
+          <input
+            type="checkbox"
+            checked={follow}
+            onChange={event => setFollow(event.target.checked)}
+          />
+          <span className="follow-toggle-track" aria-hidden="true"><span /></span>
+          <span>Follow</span>
+        </label>
+
         {!notStarted && steps.length > 0 && (
           <span className="token-counter">{cursor + 1} / {steps.length}</span>
         )}
@@ -207,7 +214,7 @@ export default function EvalTrace({ code, isDark }) {
             <div className="playback-placeholder">Click Start / Reset to begin evaluation trace.</div>
           ) : (
             <>
-              <StepCard step={currentStep} total={steps.length} isDark={isDark} />
+              <StepCard step={currentStep} total={steps.length} />
               <EnvPanel env={currentStep?.env ?? {}} isDark={isDark} />
             </>
           )}
@@ -216,9 +223,11 @@ export default function EvalTrace({ code, isDark }) {
         {/* Right: AST tree with active node highlighted */}
         <div className="playback-right">
           <AstTree
-            text={visibleAstText}
+            text={astText}
             isDark={isDark}
             highlightNodeId={notStarted ? null : highlightNodeId}
+            follow={follow}
+            onFollowInterrupt={() => setFollow(false)}
           />
         </div>
       </div>
