@@ -1,334 +1,333 @@
-import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { flattenTree, getCameraTarget, getNewestRevealedNode, parseAstText } from './astTreeModel.js'
 
-// ── Node descriptions for tooltips ──────────────────────────
 const NODE_DESCRIPTIONS = {
-  Program:      'The root of the program. Contains all function definitions and the main block.',
-  Block:        'A sequence of statements enclosed in { }. Creates a new variable scope.',
-  FunctionDef:  'A function definition. Declares a named function with parameters, a body block, and a return expression.',
-  FunctionCall: 'A function call. Evaluates arguments and runs the named function\'s body.',
-  If:           'A conditional statement. Evaluates the condition; if True runs the then-block, otherwise the else-block (if present).',
-  While:        'A loop statement. Repeatedly evaluates the condition and runs the body block while it is True.',
-  Assign:       'An assignment statement. Evaluates the right-hand expression and stores it in the left-hand variable or index.',
-  Print:        'Prints the value of the expression to output.',
-  BinOp:        'A binary operation between two expressions (e.g. +, -, *, mod, ==, andalso).',
-  UnaryOp:      'A unary operation applied to one expression (e.g. not, negation -).',
-  Var:          'A variable reference. Looks up the variable\'s current value in the environment.',
-  Int:          'An integer literal value.',
-  Real:         'A floating-point (real number) literal value.',
-  String:       'A string literal value.',
-  Bool:         'A boolean literal: True or False.',
-  List:         'A list literal containing zero or more elements.',
-  Tuple:        'A tuple literal containing two or more elements.',
-  Index:        'An index operation. Accesses an element of a list or string by integer index (0-based).',
-  TupleIndex:   'A tuple projection. Accesses an element of a tuple by position (1-based, using #N syntax).',
+  Program: 'The program root. Contains function definitions and the main block.',
+  Block: 'A sequence of statements enclosed in braces.',
+  FunctionDef: 'A named function with parameters, a body, and a return expression.',
+  FunctionCall: 'Evaluates arguments and runs the named function.',
+  If: 'Runs one of two blocks based on a boolean condition.',
+  While: 'Repeats a block while its condition remains True.',
+  Assign: 'Stores an evaluated value in a variable or list index.',
+  Print: 'Writes an evaluated value to program output.',
+  BinOp: 'Combines two expressions with a binary operator.',
+  UnaryOp: 'Applies one operator to a single expression.',
+  Var: 'Looks up a variable in the current environment.',
+  Int: 'An integer literal.',
+  Real: 'A real-number literal.',
+  String: 'A string literal.',
+  Bool: 'A boolean literal.',
+  List: 'A list literal.',
+  Tuple: 'A tuple literal.',
+  Index: 'Reads an item from a list or string.',
+  TupleIndex: 'Reads a tuple item using one-based projection.',
+  Close: 'Closes the surrounding AST structure.',
 }
 
-function getNodeDesc(label) {
-  for (const [key, desc] of Object.entries(NODE_DESCRIPTIONS)) {
-    if (label.startsWith(key)) return desc
-  }
-  return label
+const NODE_STYLES = {
+  Program:      { fill: '#312e81', stroke: '#818cf8', text: '#eef2ff' },
+  Block:        { fill: '#0c4a6e', stroke: '#38bdf8', text: '#e0f2fe' },
+  FunctionDef:  { fill: '#14532d', stroke: '#4ade80', text: '#dcfce7' },
+  FunctionCall: { fill: '#064e3b', stroke: '#34d399', text: '#d1fae5' },
+  If:           { fill: '#713f12', stroke: '#facc15', text: '#fef9c3' },
+  While:        { fill: '#7c2d12', stroke: '#fb923c', text: '#ffedd5' },
+  Assign:       { fill: '#581c87', stroke: '#c084fc', text: '#f3e8ff' },
+  Print:        { fill: '#1e3a5f', stroke: '#60a5fa', text: '#dbeafe' },
+  BinOp:        { fill: '#7f1d1d', stroke: '#f87171', text: '#fee2e2' },
+  UnaryOp:      { fill: '#7f1d1d', stroke: '#fb7185', text: '#ffe4e6' },
+  Var:          { fill: '#134e4a', stroke: '#2dd4bf', text: '#ccfbf1' },
+  Int:          { fill: '#365314', stroke: '#84cc16', text: '#ecfccb' },
+  Real:         { fill: '#365314', stroke: '#84cc16', text: '#ecfccb' },
+  String:       { fill: '#78350f', stroke: '#f59e0b', text: '#fef3c7' },
+  Bool:         { fill: '#164e63', stroke: '#22d3ee', text: '#cffafe' },
+  List:         { fill: '#164e63', stroke: '#67e8f9', text: '#cffafe' },
+  Tuple:        { fill: '#334155', stroke: '#94a3b8', text: '#f1f5f9' },
+  Index:        { fill: '#713f12', stroke: '#fbbf24', text: '#fef3c7' },
+  TupleIndex:   { fill: '#713f12', stroke: '#fbbf24', text: '#fef3c7' },
+  Close:        { fill: '#27272a', stroke: '#71717a', text: '#d4d4d8' },
 }
 
-// ── Node color categories ────────────────────────────────────
-function getNodeStyle(label) {
-  if (/^Program$/.test(label))     return { fill: '#5b3fa0', stroke: '#9b7ee0', text: '#ede0ff' }
-  if (/^Block/.test(label))        return { fill: '#154e7a', stroke: '#3b9dd8', text: '#c5e5f8' }
-  if (/^FunctionDef/.test(label))  return { fill: '#145232', stroke: '#29a85e', text: '#b0eece' }
-  if (/^FunctionCall/.test(label)) return { fill: '#0e5e41', stroke: '#1acc8a', text: '#9fe8cc' }
-  if (/^If$/.test(label))          return { fill: '#6b5400', stroke: '#e8c02a', text: '#fff6c0' }
-  if (/^While$/.test(label))       return { fill: '#6b2a0e', stroke: '#e07030', text: '#ffe0c8' }
-  if (/^Assign$/.test(label))      return { fill: '#42145e', stroke: '#b060d8', text: '#e8c8f8' }
-  if (/^Print$/.test(label))       return { fill: '#0e3358', stroke: '#4da8e8', text: '#cce8fa' }
-  if (/^BinOp/.test(label))        return { fill: '#822015', stroke: '#e84030', text: '#ffd8d4' }
-  if (/^UnaryOp/.test(label))      return { fill: '#6e1a10', stroke: '#d03828', text: '#ffd8d4' }
-  if (/^Var/.test(label))          return { fill: '#0e4050', stroke: '#20c0a0', text: '#9ae8d8' }
-  if (/^Int|^Real/.test(label))    return { fill: '#124a24', stroke: '#30d060', text: '#c0f0d0' }
-  if (/^String/.test(label))       return { fill: '#5e2800', stroke: '#e08840', text: '#ffe0b8' }
-  if (/^Bool/.test(label))         return { fill: '#103c60', stroke: '#50b8e8', text: '#c8e8fa' }
-  if (/^List/.test(label))         return { fill: '#104260', stroke: '#70b8e0', text: '#c8e8fa' }
-  if (/^Tuple/.test(label))        return { fill: '#243448', stroke: '#6898c0', text: '#c8daf0' }
-  if (/^Index$/.test(label))       return { fill: '#432c10', stroke: '#c89020', text: '#ffe8b0' }
-  if (/^TupleIndex$/.test(label))  return { fill: '#382410', stroke: '#b07e28', text: '#ffe8b0' }
-  return                                  { fill: '#282828', stroke: '#606060', text: '#cccccc' }
-}
-
-// ── Parse indented text → tree ───────────────────────────────
-function parseAstText(text) {
-  const lines = text.split('\n').filter(l => l.trim())
-  if (!lines.length) return null
-
-  let id = 0
-  const makeNode = (label) => ({ id: id++, label, children: [] })
-
-  const root = makeNode(lines[0].replace(/^\t+/, '').trim())
-  const stack = [{ node: root, depth: 0 }]
-
-  for (let i = 1; i < lines.length; i++) {
-    const line  = lines[i]
-    const depth = (line.match(/^\t+/) || [''])[0].length
-    const label = line.replace(/^\t+/, '').trim()
-    if (!label) continue
-
-    const node = makeNode(label)
-    while (stack.length > 1 && stack[stack.length - 1].depth >= depth) stack.pop()
-    stack[stack.length - 1].node.children.push(node)
-    stack.push({ node, depth })
-  }
-
-  return root
-}
-
-// ── Reingold-Tilford-style layout ────────────────────────────
-const NODE_W = 140
-const NODE_H = 38
-const H_GAP  = 20
-const V_GAP  = 64
+const DEFAULT_STYLE = { fill: '#27272a', stroke: '#71717a', text: '#e4e4e7' }
+const SEMANTIC_W = 174
+const SEMANTIC_H = 54
+const STRUCTURAL_W = 58
+const STRUCTURAL_H = 34
+const H_GAP = 28
+const LEVEL_GAP = 104
 
 function layoutTree(root) {
   function computeWidth(node) {
-    if (!node.children.length) { node._w = NODE_W; return node._w }
-    let total = node.children.reduce((s, c) => s + computeWidth(c), 0)
-    total += H_GAP * (node.children.length - 1)
-    node._w = Math.max(NODE_W, total)
-    return node._w
+    node._nodeWidth = node.isStructural ? STRUCTURAL_W : SEMANTIC_W
+    node._nodeHeight = node.isStructural ? STRUCTURAL_H : SEMANTIC_H
+    if (!node.children.length) {
+      node._branchWidth = node._nodeWidth
+      return node._branchWidth
+    }
+    const childrenWidth = node.children.reduce((sum, child) => sum + computeWidth(child), 0)
+      + H_GAP * (node.children.length - 1)
+    node._branchWidth = Math.max(node._nodeWidth, childrenWidth)
+    return node._branchWidth
   }
-  computeWidth(root)
 
+  computeWidth(root)
   const positions = []
+
   function assign(node, x, y) {
-    node._x = x + node._w / 2
+    node._x = x + node._branchWidth / 2
     node._y = y
     positions.push(node)
-    let cx = x
-    for (const c of node.children) {
-      assign(c, cx, y + NODE_H + V_GAP)
-      cx += c._w + H_GAP
+    const childrenWidth = node.children.reduce((sum, child) => sum + child._branchWidth, 0)
+      + H_GAP * Math.max(0, node.children.length - 1)
+    let childX = x + (node._branchWidth - childrenWidth) / 2
+    for (const child of node.children) {
+      assign(child, childX, y + LEVEL_GAP)
+      childX += child._branchWidth + H_GAP
     }
   }
+
   assign(root, 0, 0)
   return positions
 }
 
-// ── Tooltip component ────────────────────────────────────────
-// pos is { x, y } in screen (client) pixels — the bottom-center of the hovered node rect
 function Tooltip({ node, pos, isDark }) {
   if (!node || !pos) return null
-
-  const s         = getNodeStyle(node.label)
-  const desc      = getNodeDesc(node.label)
-  const bg        = isDark ? '#1c1c1e' : '#ffffff'
-  const textColor = isDark ? '#d4d4d4' : '#1e1e1e'
+  const style = NODE_STYLES[node.kind] || DEFAULT_STYLE
 
   return (
-    <div style={{
-      position: 'fixed',
-      left: pos.x,
-      top:  pos.y + 8,
-      transform: 'translateX(-50%)',
-      zIndex: 1000,
-      background: bg,
-      border: `1.5px solid ${s.stroke}`,
-      borderRadius: 8,
-      padding: '8px 12px',
-      maxWidth: 260,
-      pointerEvents: 'none',
-      boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
-    }}>
-      <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: s.stroke, marginBottom: 4 }}>
-        {node.label}
-      </div>
-      <div style={{ fontSize: 12, color: textColor, lineHeight: 1.5 }}>
-        {desc}
-      </div>
+    <div
+      className="ast-tooltip"
+      style={{
+        left: pos.x,
+        top: pos.y + 10,
+        borderColor: style.stroke,
+        background: isDark ? '#18181b' : '#ffffff',
+      }}
+    >
+      <div className="ast-tooltip-title" style={{ color: style.stroke }}>{node.label}</div>
+      <div className="ast-tooltip-copy">{NODE_DESCRIPTIONS[node.kind] || node.label}</div>
     </div>
   )
 }
 
-// ── Main AstTree component ───────────────────────────────────
-export default function AstTree({ text, isDark, highlightNodeId = null }) {
+function clampZoom(value) {
+  return Math.max(0.45, Math.min(3.5, value))
+}
+
+export default function AstTree({
+  text,
+  isDark,
+  highlightNodeId = null,
+  revealedLines = null,
+  follow = false,
+  onFollowInterrupt,
+}) {
   const containerRef = useRef(null)
-  const [viewBox, setViewBox]       = useState({ x: 0, y: -20, w: 800, h: 600 })
-  const [pan, setPan]               = useState({ x: 0, y: 0 })
-  const [scale, setScale]           = useState(1)
-  const [hoverInfo, setHoverInfo]   = useState(null) // { node, pos: {x, y} }
   const dragging = useRef(false)
-  const lastPt   = useRef(null)
+  const lastPoint = useRef(null)
+  const markerId = `ast-arrow-${useId().replaceAll(':', '')}`
+  const glowId = `ast-glow-${useId().replaceAll(':', '')}`
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [scale, setScale] = useState(1)
+  const [hoverInfo, setHoverInfo] = useState(null)
 
-  const tree  = useMemo(() => parseAstText(text), [text])
+  const tree = useMemo(() => parseAstText(text), [text])
   const nodes = useMemo(() => tree ? layoutTree(tree) : [], [tree])
+  const flatNodes = useMemo(() => flattenTree(tree), [tree])
+  const newestNode = useMemo(
+    () => getNewestRevealedNode(flatNodes, revealedLines),
+    [flatNodes, revealedLines],
+  )
+  const cameraTarget = useMemo(
+    () => getCameraTarget(flatNodes, revealedLines, highlightNodeId),
+    [flatNodes, highlightNodeId, revealedLines],
+  )
 
-  // Fit tree on load
-  useEffect(() => {
-    if (!nodes.length) return
-    const xs = nodes.map(n => n._x)
-    const ys = nodes.map(n => n._y)
-    const pad = 32
-    const minX = Math.min(...xs) - NODE_W / 2 - pad
-    const minY = Math.min(...ys) - NODE_H / 2 - pad
-    const maxX = Math.max(...xs) + NODE_W / 2 + pad
-    const maxY = Math.max(...ys) + NODE_H / 2 + pad
-    setViewBox({ x: minX, y: minY, w: maxX - minX, h: maxY - minY })
-    setPan({ x: 0, y: 0 })
-    setScale(1)
+  const viewBox = useMemo(() => {
+    if (!nodes.length) return { x: 0, y: -40, w: 900, h: 620 }
+    const pad = 64
+    const minX = Math.min(...nodes.map(node => node._x - node._nodeWidth / 2)) - pad
+    const minY = Math.min(...nodes.map(node => node._y - node._nodeHeight / 2)) - pad
+    const maxX = Math.max(...nodes.map(node => node._x + node._nodeWidth / 2)) + pad
+    const maxY = Math.max(...nodes.map(node => node._y + node._nodeHeight / 2)) + pad
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
   }, [nodes])
 
-  const onWheel = useCallback((e) => {
-    e.preventDefault()
-    setScale(s => Math.max(0.1, Math.min(6, s * (e.deltaY < 0 ? 1.12 : 0.9))))
-  }, [])
+  const followScale = follow && cameraTarget ? Math.max(scale, 1.35) : scale
+  const followPan = useMemo(() => {
+    if (!follow || !cameraTarget) return pan
+    return {
+      x: viewBox.x + viewBox.w / 2 - cameraTarget._x * followScale,
+      y: viewBox.y + viewBox.h / 2 - cameraTarget._y * followScale,
+    }
+  }, [cameraTarget, follow, followScale, pan, viewBox])
 
-  const onMouseDown = useCallback((e) => {
-    if (e.button !== 0) return
+  const stopFollowing = useCallback(() => {
+    if (!follow) return
+    setPan(followPan)
+    setScale(followScale)
+    onFollowInterrupt?.()
+  }, [follow, followPan, followScale, onFollowInterrupt])
+
+  const zoomBy = useCallback((factor) => {
+    stopFollowing()
+    setScale(current => clampZoom(current * factor))
+  }, [stopFollowing])
+
+  const fitTree = useCallback(() => {
+    stopFollowing()
+    setPan({ x: 0, y: 0 })
+    setScale(1)
+  }, [stopFollowing])
+
+  const onWheel = useCallback((event) => {
+    event.preventDefault()
+    stopFollowing()
+    setScale(current => clampZoom(current * (event.deltaY < 0 ? 1.12 : 0.9)))
+  }, [stopFollowing])
+
+  const onMouseDown = useCallback((event) => {
+    if (event.button !== 0) return
+    stopFollowing()
     dragging.current = true
-    lastPt.current = { x: e.clientX, y: e.clientY }
-  }, [])
+    lastPoint.current = { x: event.clientX, y: event.clientY }
+  }, [stopFollowing])
 
-  const onMouseMove = useCallback((e) => {
-    if (!dragging.current) return
-    const dx = (e.clientX - lastPt.current.x) / scale
-    const dy = (e.clientY - lastPt.current.y) / scale
-    setPan(p => ({ x: p.x + dx, y: p.y + dy }))
-    lastPt.current = { x: e.clientX, y: e.clientY }
-  }, [scale])
+  const onMouseMove = useCallback((event) => {
+    if (!dragging.current || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const dx = (event.clientX - lastPoint.current.x) * viewBox.w / rect.width
+    const dy = (event.clientY - lastPoint.current.y) * viewBox.h / rect.height
+    setPan(current => ({ x: current.x + dx, y: current.y + dy }))
+    lastPoint.current = { x: event.clientX, y: event.clientY }
+  }, [viewBox])
 
   const onMouseUp = useCallback(() => { dragging.current = false }, [])
 
   useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    const element = containerRef.current
+    if (!element) return undefined
+    element.addEventListener('wheel', onWheel, { passive: false })
+    return () => element.removeEventListener('wheel', onWheel)
   }, [onWheel, tree])
 
-  if (!tree) return (
-    <div className="ast-empty">Run the code to see the AST diagram.</div>
-  )
+  if (!tree) return <div className="ast-empty">Run the code to see the AST diagram.</div>
 
-  const bg        = isDark ? '#141414' : '#f0f2f5'
-  const edgeColor = isDark ? '#4a4a4a' : '#b0b8c8'
-  const vb = `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`
-
-  const edges = []
-  for (const node of nodes) {
-    for (const child of node.children) {
-      const x1 = node._x,  y1 = node._y + NODE_H / 2
-      const x2 = child._x, y2 = child._y - NODE_H / 2
-      const my = (y1 + y2) / 2
-      edges.push({ id: `${node.id}-${child.id}`, d: `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}` })
+  const isRevealed = (node) => revealedLines == null || node.sourceLine < revealedLines
+  const activeNodeId = highlightNodeId ?? newestNode?.id ?? null
+  const traceMode = highlightNodeId != null
+  const edges = nodes.flatMap(parent => parent.children.map(child => {
+    const x1 = parent._x
+    const y1 = parent._y + parent._nodeHeight / 2
+    const x2 = child._x
+    const y2 = child._y - child._nodeHeight / 2
+    const middleY = (y1 + y2) / 2
+    return {
+      id: `${parent.id}-${child.id}`,
+      child,
+      d: `M${x1},${y1} C${x1},${middleY} ${x2},${middleY} ${x2},${y2}`,
     }
+  }))
+
+  const cameraStyle = {
+    transform: `translate(${followPan.x}px, ${followPan.y}px) scale(${followScale})`,
+    transformOrigin: '0 0',
   }
+  const background = isDark ? '#101114' : '#f5f7fb'
+  const grid = isDark ? '#24272d' : '#d9dee8'
 
   return (
     <div
       ref={containerRef}
-      className="ast-container"
+      className={`ast-container ${follow ? 'is-following' : ''}`}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={() => { dragging.current = false; setHoverInfo(null) }}
-      style={{ cursor: dragging.current ? 'grabbing' : 'grab', background: bg }}
+      style={{
+        backgroundColor: background,
+        backgroundImage: `radial-gradient(${grid} 1px, transparent 1px)`,
+      }}
     >
-      <div className="ast-hint">Scroll to zoom · Drag to pan · Hover nodes for info</div>
+      <div className="ast-camera-controls" role="group" aria-label="AST camera controls" onMouseDown={event => event.stopPropagation()}>
+        <button type="button" onClick={() => zoomBy(0.85)} aria-label="Zoom out">−</button>
+        <button type="button" onClick={fitTree}>Fit</button>
+        <button type="button" onClick={() => zoomBy(1.18)} aria-label="Zoom in">+</button>
+      </div>
+      <div className="ast-hint">Drag to pan · Scroll to zoom · Hover for details</div>
 
-      <svg
-        width="100%"
-        height="100%"
-        viewBox={vb}
-        style={{
-          transform: `scale(${scale}) translate(${pan.x}px, ${pan.y}px)`,
-          transformOrigin: 'center center',
-          overflow: 'visible',
-        }}
-      >
+      <svg width="100%" height="100%" viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`} role="img" aria-label="Abstract syntax tree">
         <defs>
-          <marker id="arrowDark" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-            <path d="M0,0 L0,7 L7,3.5 z" fill={edgeColor} />
+          <marker id={markerId} markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L0,7 L7,3.5 z" fill={isDark ? '#64748b' : '#94a3b8'} />
           </marker>
-          <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          <filter id={glowId} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
         </defs>
 
-        {edges.map(e => (
-          <path
-            key={e.id}
-            d={e.d}
-            stroke={edgeColor}
-            strokeWidth="1.8"
-            fill="none"
-            markerEnd="url(#arrowDark)"
-          />
-        ))}
+        <g className="ast-camera" style={cameraStyle}>
+          {edges.map(edge => {
+            const revealed = isRevealed(edge.child)
+            const active = edge.child.id === activeNodeId
+            return (
+              <path
+                key={edge.id}
+                className={`ast-edge ${revealed ? 'is-revealed' : 'is-pending'} ${active ? 'is-active' : ''}`}
+                d={edge.d}
+                markerEnd={`url(#${markerId})`}
+              />
+            )
+          })}
 
-        {nodes.map(node => {
-          const s          = getNodeStyle(node.label)
-          const x          = node._x - NODE_W / 2
-          const y          = node._y - NODE_H / 2
-          const isHover    = hoverInfo?.node.id === node.id
-          const isActive   = highlightNodeId !== null && node.id === highlightNodeId
-          const display    = node.label.length > 22 ? node.label.slice(0, 20) + '…' : node.label
+          {nodes.map(node => {
+            const style = NODE_STYLES[node.kind] || DEFAULT_STYLE
+            const x = node._x - node._nodeWidth / 2
+            const y = node._y - node._nodeHeight / 2
+            const revealed = isRevealed(node)
+            const active = node.id === activeNodeId
+            const dimmed = traceMode && !active
+            const kind = node.kind.length > 17 ? `${node.kind.slice(0, 16)}…` : node.kind
+            const detail = node.detail.length > 23 ? `${node.detail.slice(0, 22)}…` : node.detail
 
-          return (
-            <g
-              key={node.id}
-              onMouseEnter={(e) => {
-                if (dragging.current) return
-                const rect = e.currentTarget.querySelector('rect.main-rect')
-                if (rect) {
-                  const br = rect.getBoundingClientRect()
-                  setHoverInfo({ node, pos: { x: br.left + br.width / 2, y: br.bottom } })
-                }
-              }}
-              onMouseLeave={() => setHoverInfo(null)}
-              style={{ cursor: 'default' }}
-            >
-              <rect
-                x={x + 2} y={y + 3}
-                width={NODE_W} height={NODE_H}
-                rx="7" ry="7"
-                fill="rgba(0,0,0,0.35)"
-              />
-              <rect
-                className="main-rect"
-                x={x} y={y}
-                width={NODE_W} height={NODE_H}
-                rx="7" ry="7"
-                fill={isActive ? s.stroke : s.fill}
-                stroke={isActive ? '#ffffff' : isHover ? '#ffffff' : s.stroke}
-                strokeWidth={isActive ? 3 : isHover ? 2.5 : 1.8}
-                filter={isActive ? 'url(#glow)' : isHover ? 'url(#glow)' : undefined}
-                opacity={highlightNodeId !== null && !isActive ? 0.35 : 1}
-              />
-              <rect
-                x={x} y={y}
-                width={NODE_W} height={4}
-                rx="7" ry="7"
-                fill={s.stroke}
-                opacity={highlightNodeId !== null && !isActive ? 0.2 : 0.7}
-              />
-              <text
-                x={node._x}
-                y={node._y + 2}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize="11.5"
-                fontFamily="'JetBrains Mono','Fira Code',monospace"
-                fontWeight="700"
-                fill={isActive ? '#ffffff' : isHover ? '#ffffff' : s.text}
-                opacity={highlightNodeId !== null && !isActive ? 0.4 : 1}
+            return (
+              <g
+                key={node.id}
+                className={`ast-node ${node.isStructural ? 'is-structural' : ''} ${revealed ? 'is-revealed' : 'is-pending'} ${active ? 'is-active' : ''} ${dimmed ? 'is-dimmed' : ''}`}
+                onMouseEnter={(event) => {
+                  if (dragging.current || !revealed) return
+                  const rect = event.currentTarget.querySelector('.ast-node-card')?.getBoundingClientRect()
+                  if (rect) setHoverInfo({ node, pos: { x: rect.left + rect.width / 2, y: rect.bottom } })
+                }}
+                onMouseLeave={() => setHoverInfo(null)}
+                style={{ '--node-fill': style.fill, '--node-stroke': style.stroke, '--node-text': style.text }}
               >
-                {display}
-              </text>
-            </g>
-          )
-        })}
+                <rect className="ast-node-shadow" x={x + 3} y={y + 5} width={node._nodeWidth} height={node._nodeHeight} rx={node.isStructural ? 10 : 12} />
+                <rect
+                  className="ast-node-card"
+                  x={x}
+                  y={y}
+                  width={node._nodeWidth}
+                  height={node._nodeHeight}
+                  rx={node.isStructural ? 10 : 12}
+                  filter={active ? `url(#${glowId})` : undefined}
+                />
+                {!node.isStructural && <rect className="ast-node-accent" x={x} y={y} width="5" height={node._nodeHeight} rx="3" />}
+                {node.isStructural ? (
+                  <text className="ast-node-structure-text" x={node._x} y={node._y + 1}>{node.detail}</text>
+                ) : (
+                  <>
+                    <text className="ast-node-kind" x={x + 16} y={y + 21}>{kind}</text>
+                    <text className="ast-node-detail" x={x + 16} y={y + 40}>{detail || 'node'}</text>
+                  </>
+                )}
+              </g>
+            )
+          })}
+        </g>
       </svg>
 
-      {hoverInfo && (
-        <Tooltip node={hoverInfo.node} pos={hoverInfo.pos} isDark={isDark} />
-      )}
+      {hoverInfo && <Tooltip node={hoverInfo.node} pos={hoverInfo.pos} isDark={isDark} />}
     </div>
   )
 }

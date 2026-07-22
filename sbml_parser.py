@@ -100,12 +100,16 @@ def t_newline(t):
   t.lexer.lineno += t.value.count("\n")
 
 def t_error(t):
-  #print("Illegal character '%s'" % t.value[0])
-  raise SyntaxError("SYNTAX ERROR")
-  #t.lexer.skip(1)
+  column = t.lexpos - t.lexer.lexdata.rfind('\n', 0, t.lexpos)
+  raise SyntaxError(f"at line {t.lineno}, column {column}: illegal character {t.value[0]!r}")
 
 import ply.lex as lex
 lexer = lex.lex()
+
+def new_lexer():
+  result = lexer.clone()
+  result.lineno = 1
+  return result
 
 precedence = (
   ('left', 'ORELSE'),
@@ -375,10 +379,13 @@ def p_expr_unary_minus(t):
   t[0]._start_lexpos = t.lexpos(1)   # MINUS
 
 def p_error(t):
-  raise SyntaxError("SYNTAX ERROR")
+  if t is None:
+    raise SyntaxError("at end of input")
+  column = t.lexpos - t.lexer.lexdata.rfind('\n', 0, t.lexpos)
+  raise SyntaxError(f"at line {t.lineno}, column {column}: unexpected {t.value!r}")
 
 import ply.yacc as yacc
 parser = yacc.yacc()
 
 def parse_line(s):
-  return parser.parse(s)
+  return parser.parse(s, lexer=new_lexer())

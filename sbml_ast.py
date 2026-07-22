@@ -1,18 +1,20 @@
 #Ryan Xing 116607537
 
 class SemanticError(Exception):
-  def __init__(self, message=None):
+  def __init__(self, message=None, position=None):
     super().__init__(message)
+    self.position = position
   
   def __str__(self):
-    return "SEMANTIC ERROR"
+    return super().__str__() or "SEMANTIC ERROR"
 
   def __repr__(self):
-    return "SEMANTIC ERROR"
+    return str(self)
   
 class EnvStack:
   def __init__(self):
     self.stack = [dict()]
+    self.steps = 0
   
   def push(self):
     self.stack.append(dict())
@@ -24,6 +26,12 @@ class EnvStack:
 
   def clear(self):
     self.stack = [dict()]
+    self.steps = 0
+
+  def tick(self):
+    self.steps += 1
+    if self.steps > 10_000:
+      raise SemanticError("Execution limit exceeded (10,000 steps)")
 
   def __contains__(self, name):
     for frame in reversed(self.stack):
@@ -81,7 +89,13 @@ class Block(Node):
       s.parent = self
   def evaluate(self):
     for s in self.statements:
-      s.evaluate()
+      ENV.tick()
+      try:
+        s.evaluate()
+      except SemanticError as exc:
+        if exc.position is None:
+          exc.position = s._start_lexpos
+        raise
   def __str__(self):
     pc = self.parentCount()
     lines = [tabs(pc) + "Block{"]
@@ -103,7 +117,7 @@ class Program(Node):
     FUNCTIONS.clear()
     for f in self.func_defs:
       if f.name in FUNCTIONS:
-        raise SemanticError("SEMANTIC ERROR")
+        raise SemanticError(f"Duplicate function '{f.name}'")
       FUNCTIONS[f.name] = f
     return self.main_block.evaluate()
 
@@ -142,12 +156,15 @@ class FunctionCall(Node):
       a.parent = self
   
   def evaluate(self):
+    ENV.tick()
     if self.name not in FUNCTIONS:
-      raise SemanticError("SEMANTIC ERROR")
+      raise SemanticError(f"Undefined function '{self.name}'")
     func_def = FUNCTIONS[self.name]
 
     if len(self.args) != len(func_def.params):
-      raise SemanticError("SEMANTIC ERROR")
+      raise SemanticError(
+        f"Function '{self.name}' expects {len(func_def.params)} arguments, got {len(self.args)}"
+      )
     
     arg_values = [arg.evaluate() for arg in self.args]
 
@@ -234,7 +251,7 @@ class Var(Node):
   def evaluate(self):
     if self.name in ENV:
       return ENV[self.name]
-    raise SemanticError("SEMANTIC ERROR")
+    raise SemanticError(f"Undefined variable '{self.name}'")
   def __str__(self):
     return tabs(self.parentCount()) + f"Var({self.name})"
   
@@ -250,6 +267,27 @@ class BinOp(Node):
   #checks operator and typechecks then returns evlauted value or raises a semantic error
   def evaluate(self): 
     left_value = self.left.evaluate()
+
+    if self.operator == 'andalso':
+      if not _is_bool(left_value):
+        raise SemanticError("Type mismatch for andalso operator")
+      if not left_value:
+        return False
+      right_value = self.right.evaluate()
+      if not _is_bool(right_value):
+        raise SemanticError("Type mismatch for andalso operator")
+      return right_value
+
+    if self.operator == 'orelse':
+      if not _is_bool(left_value):
+        raise SemanticError("Type mismatch for orelse operator")
+      if left_value:
+        return True
+      right_value = self.right.evaluate()
+      if not _is_bool(right_value):
+        raise SemanticError("Type mismatch for orelse operator")
+      return right_value
+
     right_value = self.right.evaluate()
 
     if self.operator == '+':
@@ -304,18 +342,6 @@ class BinOp(Node):
       else:
         raise SemanticError("Type missmatch for mod operator")
     
-    elif self.operator == 'andalso':
-      if _is_bool(left_value) and _is_bool(right_value):
-        return left_value and right_value
-      else:
-        raise SemanticError("Type missmatch for andalso operator")
-      
-    elif self.operator == 'orelse':
-      if _is_bool(left_value) and _is_bool(right_value):
-        return left_value or right_value
-      else:
-        raise SemanticError("Type missmatch for orelse operator") 
-      
     elif self.operator == '==':
       if _is_num(left_value) and _is_num(right_value):
         return left_value == right_value
@@ -569,6 +595,7 @@ class While(Node):
 
   def evaluate(self):
     while True:
+      ENV.tick()
       cond = self.condition.evaluate()
       if not _is_bool(cond):
         raise SemanticError("SEMANTIC ERROR")

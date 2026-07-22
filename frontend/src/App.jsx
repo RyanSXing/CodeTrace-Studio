@@ -294,11 +294,23 @@ function registerSbmlLanguage(monaco) {
 
 // ── About modal ──────────────────────────────────────────────
 function AboutModal({ onClose }) {
+  useEffect(() => {
+    const closeOnEscape = (event) => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
-        <h2 className="modal-title">Code Trace Studio</h2>
+      <div
+        className="modal-box"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="about-title"
+        onClick={e => e.stopPropagation()}
+      >
+        <button className="modal-close" onClick={onClose} aria-label="Close" autoFocus>✕</button>
+        <h2 className="modal-title" id="about-title">Code Trace Studio</h2>
         <p className="modal-subtitle">A visual interpreter for learning how programs are processed</p>
 
         <div className="modal-section">
@@ -386,7 +398,12 @@ function ExamplesDropdown({ onSelect }) {
 
   return (
     <div className="examples-wrap" ref={ref}>
-      <button className="examples-btn" onClick={() => setOpen(o => !o)}>
+      <button
+        className="examples-btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+      >
         Examples ▾
       </button>
       {open && (
@@ -408,7 +425,7 @@ function ExamplesDropdown({ onSelect }) {
 }
 
 // ── Resizable split pane ─────────────────────────────────────
-function ResizeHandle({ onDrag }) {
+function ResizeHandle({ onDrag, onNudge }) {
   const dragging = useRef(false)
 
   const onMouseDown = useCallback((e) => {
@@ -421,7 +438,23 @@ function ResizeHandle({ onDrag }) {
     window.addEventListener('mouseup', onUp)
   }, [onDrag])
 
-  return <div className="resize-handle" onMouseDown={onMouseDown} />
+  const onKeyDown = (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    onNudge(event.key === 'ArrowLeft' ? -2 : 2)
+  }
+
+  return (
+    <div
+      className="resize-handle"
+      role="separator"
+      aria-label="Resize editor and output panes"
+      aria-orientation="vertical"
+      tabIndex="0"
+      onMouseDown={onMouseDown}
+      onKeyDown={onKeyDown}
+    />
+  )
 }
 
 // ── App ──────────────────────────────────────────────────────
@@ -450,7 +483,7 @@ export default function App() {
     registerSbmlLanguage(monaco)
     const model = editor.getModel()
     if (model) monaco.editor.setModelLanguage(model, LANG_ID)
-    editor.addCommand(2048 | 3, handleRun)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, handleRun)
   }
 
   function toggleTheme() {
@@ -472,6 +505,7 @@ export default function App() {
     setHasError(false)
     setOutput('')
     setAstText('')
+    const source = editorRef.current?.getValue() ?? code
 
     try {
       // Run both evaluate and parse in parallel
@@ -479,12 +513,12 @@ export default function App() {
         fetch('/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, mode: 'E' }),
+          body: JSON.stringify({ code: source, mode: 'E' }),
         }),
         fetch('/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, mode: 'P' }),
+          body: JSON.stringify({ code: source, mode: 'P' }),
         }),
       ])
 
@@ -512,7 +546,7 @@ export default function App() {
       setRightTab('output')
     } catch (err) {
       setHasError(true)
-      setOutput(`Network error: ${err.message}\nIs the Flask server running?\n  python3 server.py`)
+      setOutput(`Network error: ${err.message}\nIs the Flask server running?\n  .venv/bin/python server.py`)
       setRightTab('output')
     } finally {
       setLoading(false)
@@ -536,7 +570,7 @@ export default function App() {
         <div className="controls">
           <button className="about-btn" onClick={() => setShowAbout(true)}>About</button>
           <ExamplesDropdown onSelect={setCode} />
-          <button className="theme-btn" onClick={toggleTheme} title="Toggle theme">
+          <button className="theme-btn" onClick={toggleTheme} aria-label="Toggle theme" title="Toggle theme">
             {isDark ? <SunIcon /> : <MoonIcon />}
           </button>
           <button className="run-button" onClick={handleRun} disabled={loading}>
@@ -568,14 +602,19 @@ export default function App() {
           />
         </section>
 
-        <ResizeHandle onDrag={handleResize} />
+        <ResizeHandle
+          onDrag={handleResize}
+          onNudge={delta => setSplitPct(pct => Math.min(80, Math.max(20, pct + delta)))}
+        />
 
         <section className="right-pane" style={{ width: `${100 - splitPct}%` }}>
-          <div className="tab-bar">
+          <div className="tab-bar" role="tablist" aria-label="Interpreter views">
             {tabs.map(t => (
               <button
                 key={t.id}
                 className={`tab-btn ${rightTab === t.id ? 'active' : ''}`}
+                role="tab"
+                aria-selected={rightTab === t.id}
                 onClick={() => setRightTab(t.id)}
               >
                 {t.label}
@@ -592,7 +631,7 @@ export default function App() {
           </div>
 
           {rightTab === 'output' && (
-            <pre className={`output-content ${hasError ? 'error' : ''}`}>
+            <pre className={`output-content ${hasError ? 'error' : ''}`} aria-live="polite">
               {output || 'Click ▶ Run (or Ctrl+Enter) to execute your code.'}
             </pre>
           )}

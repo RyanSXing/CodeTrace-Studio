@@ -6,12 +6,12 @@ Instead of just running programs, it lets you **see exactly how your interpreter
 
 You can:
 
-• Run SBML code directly in the browser  
-• See terminal‑style program output  
-• Inspect the AST as text  
-• Visualize the AST as a node graph  
-• Watch the AST being constructed token‑by‑token  
-• Step through the evaluation of the program tree  
+- Run SBML code directly in the browser
+- See terminal-style program output and useful source locations for errors
+- Inspect the AST as text or as an interactive node graph
+- Watch the AST being constructed token-by-token
+- Step through evaluation with live environment values
+- Follow the active AST node automatically during parsing or evaluation
 
 This project turns a traditional interpreter into a **visual learning and debugging environment for programming languages**.
 
@@ -24,16 +24,17 @@ This project turns a traditional interpreter into a **visual learning and debugg
 - Python 3.x with `pip`
 - Node.js with `npm`
 
-## 1. Install Python dependencies
+## 1. Create a Python environment and install dependencies
 
 ```bash
-pip install flask flask-cors ply
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
 ## 2. Start the backend
 
 ```bash
-python3 server.py
+.venv/bin/python server.py
 ```
 
 The Flask server will start on `http://localhost:5001`.
@@ -47,6 +48,16 @@ npm run dev
 ```
 
 The app will be available at `http://localhost:5173`.
+
+## Run checks
+
+```bash
+.venv/bin/python -m unittest -v
+cd frontend
+npm test
+npm run lint
+npm run build
+```
 
 ---
 
@@ -129,10 +140,13 @@ The IDE can show the AST **being constructed step by step as tokens are scanned*
 
 Users can:
 
-• Step forward through parsing  
-• Step backward  
-• Play the parsing animation  
-• Control playback speed  
+- Step forward and backward through parsing
+- Play or pause the parsing animation
+- Control playback speed
+- Track progress while the full tree layout stays stable
+- Pan, zoom, fit, or follow the active node automatically
+
+The Follow toggle starts enabled, remembers the user's setting, and turns off when the tree is moved manually. Structural closing-bracket nodes remain visible as the tree is built.
 
 This makes it possible to **observe how the parser converts source code into an AST**.
 
@@ -148,11 +162,12 @@ The evaluation trace shows **how the interpreter evaluates the AST step by step*
 
 You can see:
 
-• Current node being evaluated  
-• Variable environment values  
-• Function calls and recursion  
-• Assignment updates  
-• Control flow execution  
+- Current node being evaluated
+- Variable environment values
+- Function calls and recursion
+- Assignment updates
+- Control flow execution
+- Automatic camera tracking with an independent, remembered Follow setting
 
 This effectively turns the interpreter into a **debugger for language execution**.
 
@@ -277,7 +292,6 @@ Possible extensions:
 
 • REPL mode  
 • Breakpoints during evaluation  
-• Better error diagnostics  
 • Support for additional data types  
 • Improved syntax highlighting  
 • Live AST updates while typing  

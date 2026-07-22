@@ -32,7 +32,12 @@ export default function Playback({ code, isDark }) {
   const [speed, setSpeed]                     = useState(1500) // slider value: 100=slowest(2000ms) → 2000=fastest(100ms)
   const [loading, setLoading]                 = useState(false)
   const [fetchError, setFetchError]           = useState(null)
+  const [follow, setFollow]                   = useState(() => localStorage.getItem('ast-follow-camera') !== 'false')
   const intervalRef = useRef(null)
+
+  useEffect(() => {
+    localStorage.setItem('ast-follow-camera', String(follow))
+  }, [follow])
 
   // ── Fetch tokens + AST on Start ────────────────────────
   const handleStart = useCallback(async () => {
@@ -89,24 +94,19 @@ export default function Playback({ code, isDark }) {
     return () => clearInterval(intervalRef.current)
   }, [playing, speed, tokens.length])
 
-  // ── Progressive AST reveal ─────────────────────────────
-  const astLines = useMemo(() => astText ? astText.split('\n') : [], [astText])
-
-  const visibleAstText = useMemo(() => {
-    if (!astText || tokens.length === 0 || cursor < 0) return ''
-    // Use per-token line counts if available, otherwise fall back to linear proportion
+  const astLineCount = useMemo(() => astText ? astText.split('\n').length : 0, [astText])
+  const revealedLines = useMemo(() => {
+    if (!astText || tokens.length === 0 || cursor < 0) return 0
     if (perTokenAstLines.length > 0 && cursor < perTokenAstLines.length) {
-      const lineCount = perTokenAstLines[cursor]
-      return astLines.slice(0, lineCount).join('\n')
+      return perTokenAstLines[cursor]
     }
-    const fraction = (cursor + 1) / tokens.length
-    const lineCount = Math.ceil(astLines.length * fraction)
-    return astLines.slice(0, lineCount).join('\n')
-  }, [astLines, cursor, tokens.length, astText, perTokenAstLines])
+    return Math.ceil(astLineCount * ((cursor + 1) / tokens.length))
+  }, [astLineCount, astText, cursor, perTokenAstLines, tokens.length])
 
   const currentToken = cursor >= 0 && cursor < tokens.length ? tokens[cursor] : null
   const notStarted   = cursor < 0
   const atEnd        = cursor >= tokens.length - 1
+  const progress     = notStarted || tokens.length === 0 ? 0 : ((cursor + 1) / tokens.length) * 100
 
   return (
     <div className="playback-container">
@@ -150,6 +150,16 @@ export default function Playback({ code, isDark }) {
           <span>Fast</span>
         </label>
 
+        <label className="follow-toggle">
+          <input
+            type="checkbox"
+            checked={follow}
+            onChange={event => setFollow(event.target.checked)}
+          />
+          <span className="follow-toggle-track" aria-hidden="true"><span /></span>
+          <span>Follow</span>
+        </label>
+
         {!notStarted && tokens.length > 0 && (
           <span className="token-counter">
             {cursor + 1} / {tokens.length}
@@ -162,6 +172,21 @@ export default function Playback({ code, isDark }) {
             <span className="token-badge-value">{currentToken.value}</span>
           </span>
         )}
+      </div>
+
+      <div className="build-progress" aria-live="polite">
+        <div className="build-progress-copy">
+          <span className={`build-status-dot ${playing ? 'is-playing' : ''}`} />
+          <span>
+            {currentToken
+              ? <>Building <strong>{currentToken.type}</strong> <code>{currentToken.value}</code></>
+              : 'Ready to build the AST'}
+          </span>
+        </div>
+        <div className="build-progress-track" aria-hidden="true">
+          <span style={{ transform: `scaleX(${progress / 100})` }} />
+        </div>
+        <span className="build-progress-percent">{Math.round(progress)}%</span>
       </div>
 
       {/* Error */}
@@ -178,7 +203,13 @@ export default function Playback({ code, isDark }) {
           }
         </div>
         <div className="playback-right">
-          <AstTree text={visibleAstText} isDark={isDark} />
+          <AstTree
+            text={astText}
+            isDark={isDark}
+            revealedLines={revealedLines}
+            follow={follow}
+            onFollowInterrupt={() => setFollow(false)}
+          />
         </div>
       </div>
 
